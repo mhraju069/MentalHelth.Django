@@ -31,3 +31,16 @@ class DailyReport(models.Model):
         elif self.assesment == 'depressed':
             self.score = 2
         super().save(*args, **kwargs)
+
+class AIChatSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class AIChatMessage(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(AIChatSession, on_delete=models.CASCADE, related_name='messages')
+    role = models.CharField(max_length=20, choices=(('user', 'User'), ('assistant', 'Assistant'), ('system', 'System')))
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)

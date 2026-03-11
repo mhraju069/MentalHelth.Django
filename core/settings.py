@@ -74,16 +74,16 @@ TEMPLATES = [
     },
 ]
 
-# ASGI_APPLICATION = 'core.asgi.application'
+ASGI_APPLICATION = 'core.asgi.application'
 
-# CHANNEL_LAYERS = {
-#     'default': {
-#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-#         'CONFIG': {
-#             "hosts": [(os.getenv('REDIS_HOST', '127.0.0.1'), 6379)],
-#         },
-#     },
-# }
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [(os.getenv('REDIS_HOST', 'redis'), 6379)],
+        },
+    },
+}
 
 DATABASES = {
     'default': {

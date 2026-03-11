@@ -9,17 +9,13 @@ django.setup()
 
 application = get_asgi_application()
 
+import others.routing
 
-# import messaging.routing
-
-# websocket_urlpatterns = messaging.routing.websocket_urlpatterns 
-
-# application = ProtocolTypeRouter({
-#     "http": get_asgi_application(),
-#     "websocket": AuthMiddlewareStack(
-#         URLRouter(
-#             websocket_urlpatterns
-#         )
-#     ),
-# })
-
+application = ProtocolTypeRouter({
+    "http": get_asgi_application(),
+    "websocket": AuthMiddlewareStack(
+        URLRouter(
+            others.routing.websocket_urlpatterns
+        )
+    ),
+})

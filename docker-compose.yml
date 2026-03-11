@@ -43,12 +43,12 @@ services:
       #   ports:
       #     - "5432:5432"
 
-      # redis:
-      #   image: redis:7
-      #   container_name: redis
-      #   ports:
-      #     - "6380:6379"
-      #     # - db
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6380:6379"
+      # - db
 
       # celery_worker:
       #   build: .
