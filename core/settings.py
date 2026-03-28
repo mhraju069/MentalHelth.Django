@@ -20,6 +20,7 @@ STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1048576
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 CORS_ALLOW_HEADERS = list(default_headers) + ['ngrok-skip-browser-warning',]
 CORS_ALLOW_ORIGINS =  os.getenv('CORS_ALLOW_ORIGINS', 'localhost:8000,localhost:3000').split(',')
 CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'localhost:8000,localhost:3000').split(',')
@@ -75,15 +76,6 @@ TEMPLATES = [
 ]
 
 ASGI_APPLICATION = 'core.asgi.application'
-
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts": [(os.getenv('REDIS_HOST', 'redis'), 6379)],
-        },
-    },
-}
 
 DATABASES = {
     'default': {
