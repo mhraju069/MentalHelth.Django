@@ -7,6 +7,9 @@ from .views import (
     AIChatHistoryView,
     AIChatClearView,
     FeedbackView,
+    FCMDeviceView,
+    NotificationListView,
+    MarkNotificationReadView,
 )
 
 urlpatterns = [
@@ -14,9 +17,10 @@ urlpatterns = [
     path('report/', GetReportView.as_view()),
     path('insights/', getInsightsView.as_view()),
     path('feedback/', FeedbackView.as_view()),
-
-    # AI Chat (HTTP — replaces WebSocket)
     path('chat/send/', AIChatSendMessageView.as_view()),
     path('chat/history/', AIChatHistoryView.as_view()),
     path('chat/clear/', AIChatClearView.as_view()),
+    path('fcm/device/', FCMDeviceView.as_view()),
+    path('notifications/', NotificationListView.as_view()),
+    path('notifications/<uuid:pk>/read/', MarkNotificationReadView.as_view()),
 ]

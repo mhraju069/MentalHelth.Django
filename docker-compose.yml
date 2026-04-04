@@ -8,12 +8,11 @@ services:
       - .:/app
     expose:
       - "8000"
-      # depends_on:
-      # - redis
-      # - db
     environment:
       - DJANGO_SETTINGS_MODULE=core.settings
-      # - REDIS_HOST=redis
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
 
   nginx:
     image: nginx:stable
@@ -30,6 +29,36 @@ services:
       - web
       # - db
 
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6380:6379"
+
+  celery_worker:
+    build: .
+    container_name: celery_worker
+    command: celery -A core worker -l info
+    volumes:
+      - .:/app
+    working_dir: /app
+    depends_on:
+      - redis
+      - web
+    restart: always
+
+  celery_beat:
+    build: .
+    container_name: celery_beat
+    command: celery -A core beat -l info
+    volumes:
+      - .:/app
+    working_dir: /app
+    depends_on:
+      - redis
+      - web
+    restart: always
+
       # db:
       #   image: postgres:15
       #   container_name: db
@@ -42,38 +71,6 @@ services:
       #     - postgres_data:/var/lib/postgresql/data
       #   ports:
       #     - "5432:5432"
-
-  # redis:
-  #   image: redis:7
-  #   container_name: redis
-  #   ports:
-  #     - "6380:6379"
-      # - db
-
-      # celery_worker:
-      #   build: .
-      #   container_name: celery_worker
-      #   command: celery -A core worker -l info --pool=solo
-      #   volumes:
-      #     - .:/app
-      #   working_dir: /app
-      #   depends_on:
-      #     - redis
-      #     - web
-      #   restart: always
-
-      # celery_beat:
-      #   build: .
-      #   container_name: celery_beat
-      #   command: celery -A core beat -l info
-      #   volumes:
-      #     - .:/app
-      #   working_dir: /app
-      #   depends_on:
-      #     - redis
-      #     - web
-      #   restart: always
-
 
       # volumes:
       #   postgres_data:

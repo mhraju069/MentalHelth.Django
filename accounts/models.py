@@ -45,6 +45,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_superuser = models.BooleanField(default=False,verbose_name="Super User")
     date_joined = models.DateTimeField(auto_now_add=True, verbose_name="Joining Date")
     block = models.BooleanField(default=False,verbose_name="Suspend User")
+    notify = models.BooleanField(default=True,verbose_name="Notify Me")
+    checkin_time = models.TimeField(default=time(9, 0), verbose_name="Daily Check-in Time")
 
     objects = UserManager()
     class Meta:

@@ -7,9 +7,14 @@ load_dotenv()
 from corsheaders.defaults import default_headers
 import firebase_admin
 from firebase_admin import credentials
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-# cred = credentials.Certificate("firebase-key.json")
-# firebase_admin.initialize_app(cred)
+cred_path = os.path.join(BASE_DIR, "firebase-key.json")
+if os.path.exists(cred_path):
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred)
+else:
+    print(f"Warning: Firebase certificate not found at {cred_path}")
 
 CORS_ALLOW_CREDENTIALS = True
 DEBUG = os.getenv('DEBUG', True)
@@ -139,3 +144,18 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL")
 
 
+# Celery Settings
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
+CELERY_ACCEPT_CONTENT = ['application/json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    'send-daily-reminders-every-minute': {
+        'task': 'others.tasks.send_daily_reminders',
+        'schedule': crontab(minute='*'),  # Run every minute to check for users
+    },
+}

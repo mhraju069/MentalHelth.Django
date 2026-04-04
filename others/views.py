@@ -9,8 +9,8 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime
-from .models import DailyReport, AIChatSession, AIChatMessage
-from .serializes import DailyReportSerializer, FeedbackSerializer
+from .models import DailyReport, AIChatSession, AIChatMessage, FCMDevice, Notification
+from .serializes import DailyReportSerializer, FeedbackSerializer, FCMDeviceSerializer, NotificationSerializer
 from core.pagination import CustomLimitPagination
 
 logger = logging.getLogger(__name__)
@@ -527,3 +527,48 @@ class FeedbackView(views.APIView):
             serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class FCMDeviceView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        registration_id = request.data.get('registration_id')
+        if not registration_id:
+            return Response({"error": "registration_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update or create the device token
+        device, created = FCMDevice.objects.update_or_create(
+            registration_id=registration_id,
+            defaults={
+                'user': request.user,
+                'device_id': request.data.get('device_id'),
+                'active': True
+            }
+        )
+        
+        serializer = FCMDeviceSerializer(device)
+        return Response(serializer.data, status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED)
+
+
+class NotificationListView(generics.ListAPIView):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = CustomLimitPagination
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user).order_by('-created_at')
+
+
+class MarkNotificationReadView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            notification = Notification.objects.get(pk=pk, user=request.user)
+            notification.is_read = True
+            notification.save()
+            return Response({"status": "success"}, status=status.HTTP_200_OK)
+        except Notification.DoesNotExist:
+            return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+
