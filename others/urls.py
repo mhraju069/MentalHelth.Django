@@ -6,12 +6,14 @@ from .views import (
     AIChatSendMessageView,
     AIChatHistoryView,
     AIChatClearView,
+    FeedbackView,
 )
 
 urlpatterns = [
     path('checkin/', DailyReportView.as_view()),
     path('report/', GetReportView.as_view()),
     path('insights/', getInsightsView.as_view()),
+    path('feedback/', FeedbackView.as_view()),
 
     # AI Chat (HTTP — replaces WebSocket)
     path('chat/send/', AIChatSendMessageView.as_view()),

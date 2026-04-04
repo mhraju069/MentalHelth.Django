@@ -516,3 +516,14 @@ class getInsightsView(GetReportView):
                     best_d = d
                     
         return {"day": best_d, "avg": round(best_avg, 1)}
+
+
+class FeedbackView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = FeedbackSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -6,3 +6,10 @@ class DailyReportSerializer(serializers.ModelSerializer):
         model = DailyReport
         exclude = ('created_at', 'updated_at')
         read_only_fields = ('user',)
+
+
+class FeedbackSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Feedback
+        exclude = ('created_at', 'updated_at')
+        read_only_fields = ('user',)
