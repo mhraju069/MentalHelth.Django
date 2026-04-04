@@ -10,7 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import datetime
 from .models import DailyReport, AIChatSession, AIChatMessage
-from .serializes import DailyReportSerializer
+from .serializes import DailyReportSerializer, FeedbackSerializer
 from core.pagination import CustomLimitPagination
 
 logger = logging.getLogger(__name__)
@@ -518,7 +518,7 @@ class getInsightsView(GetReportView):
         return {"day": best_d, "avg": round(best_avg, 1)}
 
 
-class FeedbackView(APIView):
+class FeedbackView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):

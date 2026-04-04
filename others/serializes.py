@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import DailyReport
+from .models import DailyReport, Feedback
 
 class DailyReportSerializer(serializers.ModelSerializer):
     class Meta:
