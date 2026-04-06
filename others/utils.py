@@ -1,9 +1,7 @@
 import logging
 from firebase_admin import messaging
 from .models import FCMDevice, Notification
-from django.conf import settings
 
-User = settings.AUTH_USER_MODEL
 
 logger = logging.getLogger(__name__)
 

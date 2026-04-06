@@ -1,10 +1,10 @@
 import logging
 from celery import shared_task
 from django.utils import timezone
-from django.conf import settings
+from django.contrib.auth import get_user_model
 from .utils import send_fcm_notification
 
-User = settings.AUTH_USER_MODEL
+User = get_user_model()
 logger = logging.getLogger(__name__)
 
 @shared_task
@@ -29,7 +29,7 @@ def send_daily_reminders():
     if users.exists():
         logger.info(f"Sending {users.count()} reminders for {current_hour:02}:{current_minute:02}")
         for user in users:
-            send_single_reminder.delay(user.id)
+            send_single_reminder.delay(str(user.id))
 
 @shared_task
 def send_single_reminder(user_id):

@@ -3,7 +3,8 @@ from django.contrib.auth.models import BaseUserManager, AbstractBaseUser, Permis
 from django.conf import settings
 import random,uuid
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta,time
+
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
