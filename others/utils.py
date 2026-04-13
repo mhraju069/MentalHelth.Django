@@ -11,7 +11,7 @@ def send_fcm_notification(user, title, body, data=None):
     """
     devices = FCMDevice.objects.filter(user=user, active=True)
     if not devices.exists():
-        logger.info(f"No active FCM devices found for user {user.username}")
+        logger.info(f"No active FCM devices found for user {user.email}")
         # Even if no devices, we might want to save the notification for the user to see later in-app
     
     # Save notification to DB
@@ -38,7 +38,7 @@ def send_fcm_notification(user, title, body, data=None):
 
     try:
         response = messaging.send_multicast(message)
-        logger.info(f"Successfully sent {response.success_count} messages to user {user.username}")
+        logger.info(f"Successfully sent {response.success_count} messages to user {user.email}")
         
         # Handle failed tokens (optional: deactivate them)
         if response.failure_count > 0:

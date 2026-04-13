@@ -69,7 +69,7 @@ class FCMDevice(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.username} - {self.registration_id[:20]}"
+        return f"{self.user.email} - {self.registration_id[:20]}"
 
 
 class Notification(models.Model):
@@ -82,4 +82,4 @@ class Notification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user.username} - {self.title}"
+        return f"{self.user.email} - {self.title}"
