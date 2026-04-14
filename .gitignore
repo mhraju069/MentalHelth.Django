@@ -52,5 +52,5 @@ coverage.xml
 .DS_Store
 Thumbs.db
 celerybeat-schedule
-firebase-keys.json
+firebase-key.json
 .env
