@@ -8,6 +8,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework import generics, status,permissions
 from rest_framework_simplejwt.tokens import RefreshToken
+from firebase_admin import auth as firebase_auth
+import requests
+from django.utils.text import slugify
+from django.core.files.base import ContentFile
+from django.contrib.auth.hashers import make_password
 
 # Create your views here.
 

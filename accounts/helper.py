@@ -3,7 +3,14 @@ from datetime import timedelta
 from .models import OTP, User
 from django.core.mail import send_mail
 from django.conf import settings
+from rest_framework.response import Response
 import json
+import requests
+import jwt
+from jwt.algorithms import RSAAlgorithm
+from django.contrib.auth.hashers import make_password
+from django.utils.text import slugify
+from django.core.files.base import ContentFile
 
 def send_otp(email, task="verification"):
     try:
