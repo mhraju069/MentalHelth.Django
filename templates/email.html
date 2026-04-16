@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Mental Health Journal • {{ task|title }}</title>
+    <style>
+        /* Email client reset + modern base */
+        .ExternalClass,
+        .ReadMsgBody {
+            width: 100%;
+            background-color: #f4f6f5;
+        }
+
+        body,
+        table,
+        td,
+        p,
+        a {
+            margin: 0;
+            padding: 0;
+            border: 0;
+            font-size: 100%;
+        }
+
+        body {
+            background-color: #f4f6f5;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+        }
+
+        @media only screen and (max-width: 520px) {
+            .responsive-container {
+                width: 100% !important;
+            }
+
+            .inner-padding {
+                padding: 32px 24px !important;
+            }
+
+            .otp-digit-cell {
+                width: 48px !important;
+                height: 58px !important;
+                font-size: 28px !important;
+                line-height: 58px !important;
+            }
+
+            .otp-gap {
+                width: 6px !important;
+            }
+
+            .card-radius {
+                border-radius: 28px !important;
+            }
+        }
+
+        @media only screen and (max-width: 400px) {
+            .otp-digit-cell {
+                width: 42px !important;
+                height: 52px !important;
+                font-size: 26px !important;
+                line-height: 52px !important;
+            }
+
+            .otp-gap {
+                width: 4px !important;
+            }
+
+            .inner-padding {
+                padding: 28px 18px !important;
+            }
+        }
+    </style>
+</head>
+
+<body
+    style="margin: 0; padding: 0; background-color: #f4f6f5; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; width: 100%; height: 100%;">
+
+    <!--[if (gte mso 9)|(IE)]>
+<xml>
+    <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+</xml>
+<![endif]-->
+
+    <!-- MAIN WRAPPER: soft wellness background -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#f4f6f5"
+        style="background-color: #f4f6f5; width: 100%; table-layout: fixed;">
+        <tr>
+            <td align="center" valign="top" style="padding: 32px 20px;">
+
+                <!-- CARD CONTAINER: clean, rounded, subtle shadow -->
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" align="center"
+                    style="max-width: 520px; width: 100%; background-color: #ffffff; border-radius: 36px; box-shadow: 0 20px 35px -12px rgba(60, 72, 58, 0.12), 0 2px 6px rgba(0,0,0,0.02); overflow: hidden;"
+                    class="responsive-container">
+                    <tr>
+                        <td style="border-radius: 36px; overflow: hidden;">
+
+                            <!-- TOP AURA LINE (soft green gradient) -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td height="5" bgcolor="#588157"
+                                        style="height: 5px; background: linear-gradient(90deg, #588157 0%, #7aa36a 50%, #588157 100%); font-size: 0; line-height: 0;">
+                                        &nbsp;</td>
+                                </tr>
+                            </table>
+
+                            <!-- MAIN CARD CONTENT (inner padding) -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0"
+                                style="padding: 44px 38px 48px;" class="inner-padding">
+                                <tr>
+                                    <td style="padding: 0;">
+
+                                        <!-- Minimal icon + brand name (mental wellness leaf hint) -->
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td align="center" style="padding-bottom: 24px;">
+                                                    <table cellpadding="0" cellspacing="0" border="0" align="center">
+                                                        <tr>
+                                                            <td align="center" bgcolor="#eef3ec" width="56" height="56"
+                                                                style="width: 56px; height: 56px; background-color: #eef3ec; border-radius: 100px; text-align: center; vertical-align: middle; box-shadow: 0 6px 12px -6px rgba(88, 129, 87, 0.18);">
+                                                                <span
+                                                                    style="font-size: 28px; line-height: 56px; display: block; color: #3a5a40;">🌿</span>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td align="center" style="padding-bottom: 8px;">
+                                                    <span
+                                                        style="font-size: 24px; font-weight: 470; letter-spacing: -0.3px; color: #2c3e2b;">Mental
+                                                        Health Journal</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Title & micro description -->
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td align="center" style="padding: 16px 0 6px;">
+                                                    <h1
+                                                        style="font-size: 30px; font-weight: 460; color: #1f2e1e; margin: 0; letter-spacing: -0.4px;">
+                                                        {{ task|title }}</h1>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td align="center" style="padding-bottom: 16px;">
+                                                    <p
+                                                        style="color: #5e6e5c; font-size: 16px; line-height: 1.4; margin: 0;">
+                                                        Enter the secure code to continue your mindful journey</p>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- OTP CARD: large spaced digits (premium + calm) -->
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#fafdf8"
+                                            style="background-color: #fafdf8; border-radius: 32px; border: 1px solid #e2ecd9; margin: 24px 0 28px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.01), 0 12px 20px -12px rgba(70, 90, 60, 0.12);">
+                                            <tr>
+                                                <td style="padding: 32px 24px 34px;" align="center">
+
+                                                    <!-- OTP label (minimal) -->
+                                                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                                        <tr>
+                                                            <td align="center"
+                                                                style="font-size: 12px; font-weight: 500; letter-spacing: 1.8px; text-transform: uppercase; color: #8a9c82; padding-bottom: 24px;">
+                                                                verification code </td>
+                                                        </tr>
+                                                    </table>
+
+                                                    <!-- 6-DIGIT OTP with spaced digits (fully dynamic) -->
+                                                    <table cellpadding="0" cellspacing="0" border="0" align="center"
+                                                        style="margin: 0 auto;">
+                                                        <tr>
+                                                            {% for digit in otp|make_list %}
+                                                            <td align="center" valign="middle" width="58" height="70"
+                                                                class="otp-digit-cell"
+                                                                style="width: 58px; height: 70px; background: #ffffff; border-radius: 22px; border: 1px solid #ddecd2; box-shadow: 0 8px 14px -8px rgba(70, 90, 60, 0.12), 0 0 0 1px rgba(88, 129, 87, 0.1); text-align: center; vertical-align: middle; font-size: 36px; font-weight: 520; color: #2d402b; line-height: 70px; font-feature-settings: 'tnum'; font-family: monospace, 'Courier New', 'Inter', monospace;">
+                                                                {{ digit }}
+                                                            </td>
+                                                            {% if not forloop.last %}
+                                                            <td width="10" class="otp-gap" style="width: 10px;">&nbsp;
+                                                            </td>
+                                                            {% endif %}
+                                                            {% endfor %}
+                                                        </tr>
+                                                    </table>
+
+                                                    <!-- calm instruction text + expiry highlight -->
+                                                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                                        <tr>
+                                                            <td align="center" style="padding: 32px 0 10px;">
+                                                                <p style="color: #4f604b; font-size: 15px; margin: 0;">
+                                                                    This code grants secure access to your journal</p>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td align="center">
+                                                                <table cellpadding="0" cellspacing="0" border="0"
+                                                                    bgcolor="#e9f2e5"
+                                                                    style="background-color: #e9f2e5; border-radius: 50px;">
+                                                                    <tr>
+                                                                        <td style="padding: 8px 18px;">
+                                                                            <table cellpadding="0" cellspacing="0"
+                                                                                border="0" align="center">
+                                                                                <tr>
+                                                                                    <td valign="middle"
+                                                                                        style="vertical-align: middle; padding-right: 6px;">
+                                                                                        <svg width="18" height="18"
+                                                                                            viewBox="0 0 24 24"
+                                                                                            fill="none"
+                                                                                            xmlns="http://www.w3.org/2000/svg">
+                                                                                            <circle cx="12" cy="12"
+                                                                                                r="9.5" stroke="#588157"
+                                                                                                stroke-width="1.4"
+                                                                                                stroke-linecap="round" />
+                                                                                            <path d="M12 7V12L14.5 14.5"
+                                                                                                stroke="#588157"
+                                                                                                stroke-width="1.5"
+                                                                                                stroke-linecap="round" />
+                                                                                        </svg>
+                                                                                    </td>
+                                                                                    <td valign="middle"
+                                                                                        style="vertical-align: middle; color: #3a5a40; font-size: 14px; font-weight: 500; letter-spacing: -0.2px;">
+                                                                                        Code expires in 3 minutes</td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Gentle reminder (privacy / support) -->
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td align="center" style="padding: 0 0 18px;">
+                                                    <p
+                                                        style="color: #7b8c74; font-size: 14px; line-height: 1.4; margin: 0;">
+                                                        If you didn't request this, you can safely ignore this
+                                                        email.<br>Your data remains private & secure.</p>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Divider (subtle greenish) -->
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td align="center" style="padding: 10px 0 8px;">
+                                                    <table width="80" cellpadding="0" cellspacing="0"
+                                                        style="width: 80px;">
+                                                        <tr>
+                                                            <td height="1" bgcolor="#dde8d6"
+                                                                style="height: 1px; background-color: #dde8d6; font-size: 0;">
+                                                                &nbsp;</td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Footer with soft disclaimer -->
+                                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td align="center" style="padding-top: 20px;">
+                                                    <p
+                                                        style="color: #99aa92; font-size: 12px; line-height: 1.5; margin: 0 0 4px;">
+                                                        Mental Health Journal — nurturing clarity, one step at a time
+                                                    </p>
+                                                    <p style="color: #b2c2aa; font-size: 11px; margin: 8px 0 0;">© 2025
+                                                        Mental Health Journal · comfort & growth </p>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- tiny spacer after card (optional but clean) -->
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td align="center" style="padding-top: 24px;">
+                            <p style="color: #bac9b2; font-size: 11px; margin: 0;">secure connection · 256-bit encrypted
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+    <!-- Outlook legacy compatibility -->
+    <!--[if (gte mso 9)|(IE)]>
+<style>
+    .otp-digit-cell { border: 1px solid #bdd6ae !important; }
+    table, td { border-collapse: collapse; }
+</style>
+<![endif]-->
+
+</body>
+
+</html>

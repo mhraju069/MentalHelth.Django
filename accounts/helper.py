@@ -1,7 +1,8 @@
 from django.utils import timezone
 from datetime import timedelta
 from .models import OTP, User
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMultiAlternatives
+from django.template.loader import render_to_string
 from django.conf import settings
 from rest_framework.response import Response
 import json
@@ -17,12 +18,17 @@ def send_otp(email, task="verification"):
         user = User.objects.get(email=email)
         otp_obj = OTP.generate_otp(user)
         
-        subject = f"Your OTP for {task}"
-        message = f"Your OTP code is {otp_obj.otp}. It will expire in 3 minutes."
+        subject = f"Your OTP code for Mental Health Journal"
         email_from = settings.EMAIL_HOST_USER
         recipient_list = [email]
         
-        send_mail(subject, message, email_from, recipient_list)
+        # Render HTML template
+        html_content = render_to_string('email.html', {'otp': otp_obj.otp, 'task': task})
+        plain_text = f"Your OTP code is {otp_obj.otp}. It will expire in 3 minutes."
+        
+        msg = EmailMultiAlternatives(subject, plain_text, email_from, recipient_list)
+        msg.attach_alternative(html_content, "text/html")
+        msg.send()
         
         return {"status": True, "log": f"OTP sent successfully to {email}"}
     except User.DoesNotExist:
