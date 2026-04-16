@@ -1,5 +1,6 @@
 from .models import User
 from rest_framework import serializers
+from others.utils import calculate_streak
 
 
 class SignUpSerializer(serializers.ModelSerializer):
@@ -26,6 +27,9 @@ class SignUpSerializer(serializers.ModelSerializer):
         return user
 
 
+
+
+
 class SignInSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(style={'input_type': 'password'})
@@ -50,7 +54,14 @@ class SignInSerializer(serializers.Serializer):
         raise serializers.ValidationError("Email and password are required")
 
 
+
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
+
+    streak = serializers.SerializerMethodField()
+    total_checkin = serializers.SerializerMethodField()
+    old_password = serializers.CharField(write_only=True, required=False)
     
     class Meta:
         model = User
@@ -59,13 +70,26 @@ class UserProfileSerializer(serializers.ModelSerializer):
         extra_kwargs = {'password': {'write_only': True}}
 
     def update(self, instance, validated_data):
-        instance.name = validated_data.get('name', instance.name)
-        instance.image = validated_data.get('image', instance.image)
+        password = validated_data.pop('password', None)
+        old_password = validated_data.pop('old_password', None)
 
-        if validated_data.get('password'):
-            if not instance.check_password(validated_data['old_password']):
-                raise serializers.ValidationError("Old password does not match.")
-            instance.set_password(validated_data['password'])
+        # Update all other fields sent in the request
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        # Handle password change separately if provided
+        if password:
+            if not old_password:
+                raise serializers.ValidationError({"old_password": "Old password is required to set a new one."})
+            if not instance.check_password(old_password):
+                raise serializers.ValidationError({"old_password": "Old password does not match."})
+            instance.set_password(password)
 
         instance.save()
         return instance
+
+    def get_streak(self, obj):
+        return calculate_streak(obj)
+
+    def get_total_checkin(self, obj):
+        return obj.checkins.count()

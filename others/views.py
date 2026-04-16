@@ -12,6 +12,8 @@ from datetime import datetime
 from .models import DailyReport, AIChatSession, AIChatMessage, FCMDevice, Notification
 from .serializes import DailyReportSerializer, FeedbackSerializer, FCMDeviceSerializer, NotificationSerializer
 from core.pagination import CustomLimitPagination
+from .utils import calculate_streak, send_fcm_notification
+from .tasks import send_streak_notification
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +29,9 @@ SYSTEM_PROMPT = (
     "5) Use emojis sparingly to add warmth."
 )
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "google/gemini-2.0-flash-lite-001"
-OPENROUTER_TIMEOUT = 30  # seconds
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_TIMEOUT = 30  # seconds
 MAX_CONTEXT_MESSAGES = 30
 MAX_MESSAGE_LENGTH = 2000
 
@@ -84,8 +86,8 @@ class AIChatSendMessageView(views.APIView):
         # ── Build context window ─────────────────────────────────────────
         messages = self._build_context(session)
 
-        # ── Call OpenRouter ──────────────────────────────────────────────
-        ai_reply, error_response = self._call_openrouter(messages)
+        # ── Call OpenAI ──────────────────────────────────────────────────
+        ai_reply, error_response = self._call_openai(messages)
 
         if error_response is not None:
             return error_response
@@ -124,14 +126,14 @@ class AIChatSendMessageView(views.APIView):
         return history
 
     @staticmethod
-    def _call_openrouter(messages):
+    def _call_openai(messages):
         """
-        Call the OpenRouter API.
+        Call the OpenAI API.
         Returns (reply_text, None) on success or (None, Response) on failure.
         """
-        api_key = settings.OPENROUTER_API_KEY
+        api_key = settings.OPENAI_API_KEY
         if not api_key:
-            logger.error("OPENROUTER_API_KEY is not configured")
+            logger.error("OPENAI_API_KEY is not configured")
             return None, Response(
                 {"error": "AI service is not configured. Please contact support."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -140,11 +142,9 @@ class AIChatSendMessageView(views.APIView):
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://dexter.app",
-            "X-Title": "Dexter Therapist AI",
         }
         payload = {
-            "model": OPENROUTER_MODEL,
+            "model": OPENAI_MODEL,
             "messages": messages,
             "temperature": 0.8,
             "max_tokens": 500,
@@ -152,25 +152,25 @@ class AIChatSendMessageView(views.APIView):
 
         try:
             res = requests.post(
-                OPENROUTER_URL,
+                OPENAI_URL,
                 headers=headers,
                 json=payload,
-                timeout=OPENROUTER_TIMEOUT,
+                timeout=OPENAI_TIMEOUT,
             )
         except Timeout:
-            logger.warning("OpenRouter request timed out")
+            logger.warning("OpenAI request timed out")
             return None, Response(
                 {"error": "The AI took too long to respond. Please try again."},
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except ConnectionError:
-            logger.warning("Could not connect to OpenRouter")
+            logger.warning("Could not connect to OpenAI")
             return None, Response(
-                {"error": "Could not reach the AI service. Check your connection and try again."},
+                {"error": "Could reach the AI service. Check your connection and try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except Exception as exc:
-            logger.exception("Unexpected error calling OpenRouter: %s", exc)
+            logger.exception("Unexpected error calling OpenAI: %s", exc)
             return None, Response(
                 {"error": "An unexpected error occurred. Please try again later."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -178,14 +178,14 @@ class AIChatSendMessageView(views.APIView):
 
         # ── Handle HTTP-level errors ─────────────────────────────────────
         if res.status_code == 429:
-            logger.warning("OpenRouter rate-limited: %s", res.text[:300])
+            logger.warning("OpenAI rate-limited: %s", res.text[:300])
             return None, Response(
                 {"error": "AI service is busy right now. Please wait a moment and try again."},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
         if res.status_code == 401:
-            logger.error("OpenRouter auth failed (401)")
+            logger.error("OpenAI auth failed (401)")
             return None, Response(
                 {"error": "AI service authentication error. Please contact support."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -197,7 +197,7 @@ class AIChatSendMessageView(views.APIView):
                 err_msg = err_body.get("message", "Unknown error")
             except Exception:
                 err_msg = res.text[:200]
-            logger.error("OpenRouter error %s: %s", res.status_code, err_msg)
+            logger.error("OpenAI error %s: %s", res.status_code, err_msg)
             return None, Response(
                 {"error": f"AI service error: {err_msg}"},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -208,7 +208,7 @@ class AIChatSendMessageView(views.APIView):
             data = res.json()
             reply = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, ValueError) as exc:
-            logger.error("Malformed OpenRouter response: %s – %s", exc, res.text[:300])
+            logger.error("Malformed OpenAI response: %s – %s", exc, res.text[:300])
             return None, Response(
                 {"error": "Received an invalid response from the AI. Please try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -285,7 +285,14 @@ class DailyReportView(generics.ListCreateAPIView):
         return DailyReport.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        return serializer.save(user=self.request.user)
+        report = serializer.save(user=self.request.user)
+        
+        # Check for streak notification (Send on 3rd and 7th day)
+        streak = calculate_streak(self.request.user)
+        if streak in [3, 7]:
+            send_streak_notification.delay(str(self.request.user.id), streak)
+            
+        return report
 
 
 class GetReportView(views.APIView):
@@ -568,7 +575,39 @@ class MarkNotificationReadView(views.APIView):
             notification = Notification.objects.get(pk=pk, user=request.user)
             notification.is_read = True
             notification.save()
-            return Response({"status": "success"}, status=status.HTTP_200_OK)
+            return Response({"status": True}, status=status.HTTP_200_OK)
         except Notification.DoesNotExist:
-            return Response({"error": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"status": False, "log": "Notification not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+class TestFCMNotificationView(views.APIView):
+    """
+    Temporary API for testing FCM notifications.
+    POST /api/test/fcm/
+    Body: { "title": "...", "body": "..." }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        title = request.data.get("title", "Test Notification")
+        body = request.data.get("body", "This is a test notification from the server!")
+        
+        # Check if user has any registered devices first
+        from .models import FCMDevice
+        devices = FCMDevice.objects.filter(user=request.user)
+        if not devices.exists():
+            return Response({
+                "status": False,
+                "log": "No active FCM device tokens found. Please register a device token first via POST /api/fcm/device/"
+            }, status=status.HTTP_200_OK)
+        
+        success = send_fcm_notification(request.user, title, body)
+        
+        if success:
+            return Response({"status": True, "log": "Notification sent successfully."}, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                "status": False,
+                "log": "FCM token may be expired/invalid. It has been deactivated. Please re-register via POST /api/fcm/device/"
+            }, status=status.HTTP_200_OK)
 

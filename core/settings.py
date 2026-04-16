@@ -25,7 +25,7 @@ STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1048576
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 CORS_ALLOW_HEADERS = list(default_headers) + ['ngrok-skip-browser-warning',]
 CORS_ALLOW_ORIGINS =  os.getenv('CORS_ALLOW_ORIGINS', 'localhost:8000,localhost:3000,https://hecticly-rural-kittie.ngrok-free.dev').split(',')
 CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'localhost:8000,localhost:3000,hecticly-rural-kittie.ngrok-free.dev').split(',')
@@ -157,5 +157,31 @@ CELERY_BEAT_SCHEDULE = {
     'send-daily-reminders-every-minute': {
         'task': 'others.tasks.send_daily_reminders',
         'schedule': crontab(minute='*'),  # Run every minute to check for users
+    },
+}
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'others': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
     },
 }

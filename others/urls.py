@@ -10,6 +10,7 @@ from .views import (
     FCMDeviceView,
     NotificationListView,
     MarkNotificationReadView,
+    TestFCMNotificationView,
 )
 
 urlpatterns = [
@@ -23,4 +24,5 @@ urlpatterns = [
     path('fcm/device/', FCMDeviceView.as_view()),
     path('notifications/', NotificationListView.as_view()),
     path('notifications/<uuid:pk>/read/', MarkNotificationReadView.as_view()),
+    path('test/fcm/', TestFCMNotificationView.as_view()),
 ]

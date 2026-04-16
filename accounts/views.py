@@ -54,7 +54,7 @@ class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = UserProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
     def get_object(self):
-        return User.objects.filter(email=self.request.user.email).first()
+        return self.request.user
 
 
 class GetOtpView(APIView):
