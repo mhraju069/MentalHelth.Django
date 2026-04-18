@@ -27,7 +27,7 @@ class SignUpView(generics.CreateAPIView):
         refresh = RefreshToken.for_user(user)
         return Response({
             "status": True,
-            "log": UserProfileSerializer(user).data,
+            "log": UserProfileSerializer(user, context={'request': request}).data,
             "refresh": str(refresh),
             "access": str(refresh.access_token),
         }, status=status.HTTP_201_CREATED)
@@ -44,7 +44,7 @@ class SignInView(generics.CreateAPIView):
         refresh = RefreshToken.for_user(user)
         return Response({
             "status": True,
-            "log": UserProfileSerializer(user).data,
+            "log": UserProfileSerializer(user, context={'request': request}).data,
             "refresh": str(refresh),
             "access": str(refresh.access_token),
         }, status=status.HTTP_200_OK)
@@ -100,7 +100,7 @@ class OtpVerifyView(APIView):
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
             return Response({
-                "log": UserProfileSerializer(user).data,
+                "log": UserProfileSerializer(user, context={'request': request}).data,
                 "refresh": str(refresh),
                 "access": str(refresh.access_token),
             }, status=status.HTTP_200_OK)
@@ -143,6 +143,11 @@ class GetProfileView(generics.RetrieveUpdateDestroyAPIView):
     
     def get_object(self):
         return self.request.user
+    
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update({"request": self.request})
+        return context
 
 
 class FirebaseLoginView(APIView):
