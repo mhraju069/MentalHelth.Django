@@ -50,6 +50,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     date_joined = models.DateTimeField(auto_now_add=True, verbose_name="Joining Date")
     block = models.BooleanField(default=False,verbose_name="Suspend User")
     notify = models.BooleanField(default=True,verbose_name="Notify Me")
+    policy = models.BooleanField(default=False,verbose_name="Policy Accepted")
     checkin_time = models.TimeField(default=time(9, 0), verbose_name="Daily Check-in Time")
 
     objects = UserManager()

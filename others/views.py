@@ -611,3 +611,23 @@ class TestFCMNotificationView(views.APIView):
                 "log": "FCM token may be expired/invalid. It has been deactivated. Please re-register via POST /api/fcm/device/"
             }, status=status.HTTP_200_OK)
 
+
+class GetAllEntriesView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = DailyReportSerializer
+    pagination_class = CustomLimitPagination
+
+    def get_queryset(self):
+        return DailyReport.objects.filter(user=self.request.user).order_by('-time')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        paginator = CustomLimitPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = self.get_serializer(page, many=True)
+        return Response({
+            "count": paginator.page.paginator.count,
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
+            "results": serializer.data,
+        })

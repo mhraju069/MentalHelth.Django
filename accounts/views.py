@@ -208,10 +208,9 @@ class FirebaseLoginView(APIView):
             return Response({
                 'access': str(token.access_token),
                 'refresh': str(token),
-                'user': UserProfileSerializer(user, context={'request': request}).data,
+                'log': UserProfileSerializer(user, context={'request': request}).data,
                 'status': True,
                 'active': user.is_active,
-                'log': 'Login successful'
             }, status=status.HTTP_200_OK)
         else:
             return Response({'status': False,'log': 'Invalid or expired token'}, status=status.HTTP_400_BAD_REQUEST)
