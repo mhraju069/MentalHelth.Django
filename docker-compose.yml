@@ -2,8 +2,7 @@ services:
   web:
     build: .
     container_name: web
-    command: >
-      sh -c "python manage.py collectstatic --noinput && python manage.py makemigrations && python manage.py migrate && gunicorn core.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 4"
+    command: sh -c "python manage.py collectstatic --noinput && python manage.py makemigrations && python manage.py migrate && gunicorn core.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 4"
     volumes:
       - .:/app
     expose:
@@ -13,6 +12,7 @@ services:
       - REDIS_HOST=redis
     depends_on:
       - redis
+      - db
 
   nginx:
     image: nginx:stable
@@ -27,7 +27,7 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - web
-      # - db
+      - db
 
   redis:
     image: redis:7
@@ -59,18 +59,18 @@ services:
       - web
     restart: always
 
-      # db:
-      #   image: postgres:15
-      #   container_name: db
-      #   restart: always
-      #   environment:
-      #     POSTGRES_DB: ${DB_NAME}
-      #     POSTGRES_USER: ${DB_USER}
-      #     POSTGRES_PASSWORD: ${DB_PASSWORD}
-      #   volumes:
-      #     - postgres_data:/var/lib/postgresql/data
-      #   ports:
-      #     - "5432:5432"
+  db:
+    image: postgres:15
+    container_name: db
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT}:${DB_PORT}"
 
-      # volumes:
-      #   postgres_data:
+volumes:
+  postgres_data:
