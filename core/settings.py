@@ -18,7 +18,7 @@ else:
 
 CORS_ALLOW_CREDENTIALS = True
 DEBUG = os.getenv('DEBUG', True)
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-build-placeholder-key-replace-in-env")
 BASE_DIR = Path(__file__).resolve().parent.parent
 STRIPE_PUBLIC_KEY = os.getenv('STRIPE_PUBLIC_KEY')
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
@@ -28,8 +28,11 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 CORS_ALLOW_HEADERS = list(default_headers) + ['ngrok-skip-browser-warning',]
-CORS_ALLOW_ORIGINS =  os.getenv('CORS_ALLOW_ORIGINS', 'localhost:8000,localhost:3000,https://hecticly-rural-kittie.ngrok-free.dev').split(',')
-CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'localhost:8000,localhost:3000,hecticly-rural-kittie.ngrok-free.dev').split(',')
+raw_cors = os.getenv('CORS_ALLOW_ORIGINS', 'http://localhost:8000,http://localhost:3000,https://hecticly-rural-kittie.ngrok-free.dev').split(',')
+CORS_ALLOW_ORIGINS = [o if o.startswith(('http://', 'https://')) else f'http://{o}' for o in raw_cors if o.strip()]
+
+raw_csrf = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:8000,http://localhost:3000,https://hecticly-rural-kittie.ngrok-free.dev').split(',')
+CSRF_TRUSTED_ORIGINS = [o if o.startswith(('http://', 'https://')) else f'http://{o}' for o in raw_csrf if o.strip()]
 
 INSTALLED_APPS = [
     'unfold',
@@ -44,9 +47,9 @@ INSTALLED_APPS = [
     'django_filters',
     'rest_framework',
     'rest_framework_simplejwt',
+    'storages',
     'accounts',
     'others',
-
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -126,6 +129,50 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Backblaze B2 / Cloud Storage Settings
+BACKBLAZE_KEY_ID = os.getenv('BACKBLAZE_KEY_ID') or os.getenv('AWS_ACCESS_KEY_ID')
+BACKBLAZE_APPLICATION_KEY = os.getenv('BACKBLAZE_APPLICATION_KEY') or os.getenv('AWS_SECRET_ACCESS_KEY')
+BACKBLAZE_BUCKET_NAME = os.getenv('BACKBLAZE_BUCKET_NAME') or os.getenv('AWS_STORAGE_BUCKET_NAME')
+BACKBLAZE_REGION = os.getenv('BACKBLAZE_REGION') or os.getenv('AWS_S3_REGION_NAME', 'us-west-004')
+BACKBLAZE_ENDPOINT_URL = os.getenv('BACKBLAZE_ENDPOINT_URL') or os.getenv('AWS_S3_ENDPOINT_URL') or (
+    f"https://s3.{BACKBLAZE_REGION}.backblazeb2.com" if BACKBLAZE_REGION else None
+)
+BACKBLAZE_CUSTOM_DOMAIN = os.getenv('BACKBLAZE_CUSTOM_DOMAIN') or os.getenv('AWS_S3_CUSTOM_DOMAIN')
+
+USE_BACKBLAZE = os.getenv('USE_BACKBLAZE', 'False').lower() in ('true', '1', 't') or bool(BACKBLAZE_BUCKET_NAME)
+
+if USE_BACKBLAZE and BACKBLAZE_BUCKET_NAME:
+    AWS_ACCESS_KEY_ID = BACKBLAZE_KEY_ID
+    AWS_SECRET_ACCESS_KEY = BACKBLAZE_APPLICATION_KEY
+    AWS_STORAGE_BUCKET_NAME = BACKBLAZE_BUCKET_NAME
+    AWS_S3_REGION_NAME = BACKBLAZE_REGION
+    AWS_S3_ENDPOINT_URL = BACKBLAZE_ENDPOINT_URL
+    AWS_DEFAULT_ACL = None  # Backblaze B2 does not support object-level ACLs
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_QUERYSTRING_AUTH = os.getenv('BACKBLAZE_QUERYSTRING_AUTH', 'False').lower() in ('true', '1', 't')
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+
+    if BACKBLAZE_CUSTOM_DOMAIN:
+        AWS_S3_CUSTOM_DOMAIN = BACKBLAZE_CUSTOM_DOMAIN
+
+    STORAGES = {
+        "default": {
+            "BACKEND": "core.storage_backends.PublicMediaStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+else:
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

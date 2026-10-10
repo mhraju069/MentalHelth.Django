@@ -25,3 +25,5 @@ django-cors-headers
 python-dotenv
 PyJWT
 cryptography
+django-storages
+boto3
