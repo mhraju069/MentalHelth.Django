@@ -4,7 +4,7 @@ name : Deploy to VPS
 on:
   push:
     branches:
-      - deploy
+      - main
 
 jobs:
 
