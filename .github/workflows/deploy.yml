@@ -1,0 +1,32 @@
+name : Deploy to VPS
+
+
+on:
+  push:
+    branches:
+      - deploy
+
+jobs:
+
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+
+          script: |
+            cd ${{ secrets.VPS_PROJECT_PATH }}
+            git restore .
+            git fetch origin deploy
+            git reset --hard origin/deploy
+            docker compose down
+            docker compose up --build -d
+            echo "Deployed successfully"
