@@ -11,7 +11,7 @@ class PublicMediaStorage(S3Boto3Storage):
     location = os.getenv('BACKBLAZE_MEDIA_LOCATION', 'media')
     default_acl = None  # Backblaze B2 does not support object-level ACLs
     file_overwrite = False
-    querystring_auth = os.getenv('BACKBLAZE_QUERYSTRING_AUTH', 'False').lower() in ('true', '1', 't')
+    querystring_auth = os.getenv('BACKBLAZE_QUERYSTRING_AUTH', 'True').lower() in ('true', '1', 't')
 
 
 class PrivateMediaStorage(S3Boto3Storage):
