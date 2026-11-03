@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import (
+    AssessmentQuestionListView,
     DailyReportView,
     GetReportView,
     getInsightsView,
@@ -16,6 +17,7 @@ from .views import (
 
 urlpatterns = [
     path('checkin/', DailyReportView.as_view()),
+    path('assessment/questions/', AssessmentQuestionListView.as_view()),
     path('report/', GetReportView.as_view()),
     path('insights/', getInsightsView.as_view()),
     path('feedback/', FeedbackView.as_view()),

@@ -6,11 +6,12 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import models
+from django.db.models import Prefetch
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime
-from .models import DailyReport, AIChatSession, AIChatMessage, FCMDevice, Notification
-from .serializes import DailyReportSerializer, FeedbackSerializer, FCMDeviceSerializer, NotificationSerializer
+from .models import AssessmentOption, AssessmentQuestion, DailyReport, AIChatSession, AIChatMessage, FCMDevice, Notification
+from .serializes import AssessmentQuestionSerializer, DailyReportSerializer, FeedbackSerializer, FCMDeviceSerializer, NotificationSerializer
 from core.pagination import CustomLimitPagination
 from .utils import calculate_streak, send_fcm_notification
 from .tasks import send_streak_notification
@@ -282,6 +283,18 @@ class AIChatClearView(views.APIView):
 
         return Response({"detail": "Chat history cleared."})
 
+
+
+class AssessmentQuestionListView(generics.ListAPIView):
+    """Active check-in questions, managed from the admin dashboard."""
+    serializer_class = AssessmentQuestionSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        return AssessmentQuestion.objects.filter(is_active=True).prefetch_related(
+            Prefetch('options', queryset=AssessmentOption.objects.filter(is_active=True))
+        )
 
 
 class DailyReportView(generics.ListCreateAPIView):

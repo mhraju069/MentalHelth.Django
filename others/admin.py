@@ -1,6 +1,22 @@
 from django.contrib import admin
 from .models import *
-from unfold.admin import ModelAdmin
+from unfold.admin import ModelAdmin, TabularInline
+
+
+class AssessmentOptionInline(TabularInline):
+    model = AssessmentOption
+    extra = 1
+    fields = ('label', 'order', 'is_active')
+
+
+@admin.register(AssessmentQuestion)
+class AssessmentQuestionAdmin(ModelAdmin):
+    list_display = ('text', 'question_type', 'is_required', 'saves_as_tags', 'order', 'is_active', 'updated_at')
+    list_editable = ('order', 'is_active')
+    list_filter = ('is_active', 'question_type', 'is_required')
+    search_fields = ('text',)
+    fields = ('text', 'help_text', 'question_type', 'is_required', 'saves_as_tags', 'order', 'is_active')
+    inlines = [AssessmentOptionInline]
 
 @admin.register(DailyReport)
 class DailyReportAdmin(ModelAdmin):
