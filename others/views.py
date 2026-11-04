@@ -129,7 +129,7 @@ class AIChatSendMessageView(views.APIView):
         text answers are left out.
         """
         since = timezone.now() - timedelta(days=CHECKIN_CONTEXT_DAYS)
-        reports = DailyReport.objects.filter(user=user, time__gte=since).order_by("-time")[:MAX_CONTEXT_CHECKINS]
+        reports = DailyReport.objects.filter(user=user, created_at__gte=since).order_by("-created_at")[:MAX_CONTEXT_CHECKINS]
 
         lines = []
         for report in reports:
@@ -148,7 +148,7 @@ class AIChatSendMessageView(views.APIView):
             for answer in report.answers or []:
                 if answer.get("type") == "single_choice":
                     parts.append(f"{answer['question']} {answer['answer']}")
-            when = timezone.localtime(report.time).strftime("%a %b %d, %H:%M")
+            when = timezone.localtime(report.created_at).strftime("%a %b %d, %H:%M")
             lines.append(f"- {when} ({report.get_check_in_type_display().lower()}): " + "; ".join(parts))
 
         if not lines:
@@ -358,7 +358,7 @@ class DailyReportView(generics.ListCreateAPIView):
         # Several check-ins a day are allowed, but only the day's first one
         # can extend the streak, so only that one may trigger the notification.
         first_today = not DailyReport.objects.filter(
-            user=self.request.user, time__date=report.time.date()
+            user=self.request.user, created_at__date=timezone.localdate()
         ).exclude(pk=report.pk).exists()
 
         # Check for streak notification (Send on 3rd and 7th day)
@@ -369,18 +369,21 @@ class DailyReportView(generics.ListCreateAPIView):
         return report
 
 
+def this_month_reports(user):
+    """
+    The user's check-ins from the current month in their timezone, by when
+    each check-in was made. (`time` held a user-picked "when did this
+    start" date in older app versions, so it isn't reliable for this.)
+    """
+    today = timezone.localdate()
+    return DailyReport.objects.filter(user=user, created_at__year=today.year, created_at__month=today.month)
+
+
 class GetReportView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        month = datetime.now().month
-        year = datetime.now().year
-
-        reports = DailyReport.objects.filter(
-            user=request.user,
-            time__year=year,
-            time__month=month
-        )
+        reports = this_month_reports(request.user)
         
         return Response({
             "level": self.get_level(reports),
@@ -395,7 +398,7 @@ class GetReportView(views.APIView):
         # Bucket the assessments into 4 weeks
         weeks = {1: [], 2: [], 3: [], 4: []}
         for report in reports:
-            day = report.time.day
+            day = timezone.localtime(report.created_at).day
             # Distribute days into up to 4 weeks (Days 1-7, 8-14, 15-21, 22+)
             week_num = min((day - 1) // 7 + 1, 4)
             weeks[week_num].append(report.assesment)
@@ -454,33 +457,9 @@ class GetReportView(views.APIView):
         return data
     
     def get_streak(self, reports):
-
-        report_dates = reports.dates('time', 'day', order='DESC')
-        
-        streak = 0
-        today = timezone.now().date()
-        
-        previous_date = None
-        for report_date in report_dates:
-            if previous_date is None:
-                # The streak must start either today or yesterday to be active
-                if (today - report_date).days <= 1:
-                    streak += 1
-                    previous_date = report_date
-                else:
-                    # Streak is broken
-                    if (today - report_date).days > 1:
-                        break
-            else:
-                # Check for consecutive days backwards
-                if (previous_date - report_date).days == 1:
-                    streak += 1
-                    previous_date = report_date
-                else:
-                    # Gap found, streak ends
-                    break
-                    
-        return streak
+        # Across all check-ins, not just this month's, so a streak doesn't
+        # reset on the 1st.
+        return calculate_streak(self.request.user)
     
     def get_average_score(self, reports):
         total_reports = reports.count()
@@ -497,7 +476,7 @@ class getInsightsView(GetReportView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        reports = DailyReport.objects.filter(user=request.user, time__year=datetime.now().year, time__month=datetime.now().month)
+        reports = this_month_reports(request.user)
 
         return Response({
             "entries": reports.count(),
@@ -518,15 +497,13 @@ class getInsightsView(GetReportView):
             return f"{average_score}/10"
 
     def mood_trend(self, reports):
-        from datetime import timedelta
-        today = datetime.now()
-        first_day_of_month = today.replace(day=1)
-        last_month = first_day_of_month - timedelta(days=1)
-        
+        today = timezone.localdate()
+        last_month = today.replace(day=1) - timedelta(days=1)
+
         last_month_reports = DailyReport.objects.filter(
-            user=self.request.user, 
-            time__year=last_month.year, 
-            time__month=last_month.month
+            user=self.request.user,
+            created_at__year=last_month.year,
+            created_at__month=last_month.month,
         )
         
         current_total = reports.count()
@@ -542,10 +519,9 @@ class getInsightsView(GetReportView):
             last_score = last_month_reports.aggregate(total_score=models.Sum('score'))['total_score'] or 0
             last_avg = last_score / last_total
             
-        if last_avg == 0 and current_avg > 0:
-            trend = 100
-        elif last_avg == 0 and current_avg == 0:
-            trend = 0
+        if last_total == 0 or current_total == 0 or last_avg == 0:
+            # Nothing to compare against yet.
+            return "--"
         else:
             trend = ((current_avg - last_avg) / last_avg) * 100
             
@@ -580,7 +556,7 @@ class getInsightsView(GetReportView):
             
         day_scores = {}
         for report in reports:
-            day_name = report.time.strftime('%a')
+            day_name = timezone.localtime(report.created_at).strftime('%a')
             if day_name not in day_scores:
                 day_scores[day_name] = []
             if report.score is not None:
@@ -692,7 +668,7 @@ class GetAllEntriesView(generics.ListAPIView):
     pagination_class = CustomLimitPagination
 
     def get_queryset(self):
-        return DailyReport.objects.filter(user=self.request.user).order_by('-time')
+        return DailyReport.objects.filter(user=self.request.user).order_by('-created_at')
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()

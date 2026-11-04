@@ -68,11 +68,13 @@ def calculate_streak(user):
     """
     Calculates the current check-in streak for a user.
     """
+    # Days are counted in the active (user's) timezone, by when each
+    # check-in was made.
     reports = DailyReport.objects.filter(user=user)
-    report_dates = reports.dates('time', 'day', order='DESC')
-    
+    report_dates = reports.dates('created_at', 'day', order='DESC')
+
     streak = 0
-    today = timezone.now().date()
+    today = timezone.localdate()
     previous_date = None
     
     for report_date in report_dates:

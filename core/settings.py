@@ -27,7 +27,7 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
-CORS_ALLOW_HEADERS = list(default_headers) + ['ngrok-skip-browser-warning',]
+CORS_ALLOW_HEADERS = list(default_headers) + ['ngrok-skip-browser-warning', 'x-timezone',]
 raw_cors = os.getenv('CORS_ALLOW_ORIGINS', 'http://localhost:8000,http://localhost:3000,https://hecticly-rural-kittie.ngrok-free.dev').split(',')
 CORS_ALLOW_ORIGINS = [o if o.startswith(('http://', 'https://')) else f'http://{o}' for o in raw_cors if o.strip()]
 
@@ -63,6 +63,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'core.middleware.UserTimezoneMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'

@@ -23,6 +23,7 @@ uvicorn[standard]
 websockets
 django-cors-headers
 python-dotenv
+tzdata
 PyJWT
 cryptography
 django-storages

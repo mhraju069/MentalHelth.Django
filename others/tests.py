@@ -141,7 +141,8 @@ class RatedCheckinTests(APITestCase):
 
         now = timezone.now()
         for days_ago in (2, 1):
-            DailyReport.objects.create(user=self.user, mood_rating=5, anxiety_rating=5, time=now - timedelta(days=days_ago))
+            report = DailyReport.objects.create(user=self.user, mood_rating=5, anxiety_rating=5)
+            DailyReport.objects.filter(pk=report.pk).update(created_at=now - timedelta(days=days_ago))
 
         with patch('others.views.send_streak_notification') as task:
             self.checkin(check_in_type='quick', mood_rating=5, anxiety_rating=5)
@@ -162,6 +163,65 @@ class RatedCheckinTests(APITestCase):
         self.assertIn('mood 4/10; anxiety 7/10; slept 5.5h (poor); factors: Work/School', summary)
         self.assertNotIn('private words', summary)
         self.assertIsNone(AIChatSendMessageView._checkin_summary(get_user_model().objects.create_user(email='new@example.com')))
+
+
+class AnalyticsAccuracyTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(email='stats@example.com', password='pass12345')
+        self.client.force_authenticate(self.user)
+
+    def add(self, created_at, **fields):
+        report = DailyReport.objects.create(user=self.user, **fields)
+        DailyReport.objects.filter(pk=report.pk).update(created_at=created_at)
+        return report
+
+    def test_average_mixes_labels_and_ratings_on_one_scale(self):
+        from django.utils import timezone
+
+        now = timezone.now()
+        self.add(now, assesment='good')            # legacy label → 8
+        self.add(now, mood_rating=3, anxiety_rating=5)  # rating → 3
+        response = self.client.get('/api/insights/')
+
+        self.assertEqual(response.data['entries'], 2)
+        self.assertEqual(response.data['average_mood'], '5.5/10')
+        summary = {item['assesment']: item['count'] for item in response.data['summary']}
+        self.assertEqual((summary['good'], summary['sad']), (1, 1))
+
+    def test_buckets_by_when_checked_in_not_the_picked_start_time(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        # Older app versions sent a user-picked "when did this start" date.
+        self.add(timezone.now(), assesment='sad', time=timezone.now() - timedelta(days=60))
+        self.assertEqual(self.client.get('/api/insights/').data['entries'], 1)
+
+    def test_days_follow_the_users_timezone(self):
+        from datetime import datetime, timedelta, timezone as dt_timezone
+        from unittest.mock import patch
+
+        # Morning and evening of Nov 4 in New York; the evening one is
+        # already Nov 5 in UTC.
+        morning = datetime(2026, 11, 4, 13, 0, tzinfo=dt_timezone.utc)  # 08:00 NY
+        evening = datetime(2026, 11, 5, 2, 0, tzinfo=dt_timezone.utc)   # 21:00 NY
+        self.add(morning, mood_rating=5, anxiety_rating=5)
+        self.add(evening, mood_rating=5, anxiety_rating=5)
+
+        with patch('django.utils.timezone.now', return_value=evening + timedelta(minutes=30)):
+            ny = self.client.get('/api/report/', HTTP_X_TIMEZONE='America/New_York').data
+            utc = self.client.get('/api/report/').data
+            bad = self.client.get('/api/report/', HTTP_X_TIMEZONE='Not/AZone')
+
+        self.assertEqual(ny['streak'], 1)   # one day in New York
+        self.assertEqual(utc['streak'], 2)  # two days in UTC
+        self.assertEqual(bad.status_code, 200)
+        self.assertEqual(bad.data['streak'], 2)
+
+    def test_trend_needs_last_month_to_compare(self):
+        from django.utils import timezone
+
+        self.add(timezone.now(), mood_rating=7, anxiety_rating=3)
+        self.assertEqual(self.client.get('/api/insights/').data['mood_trend'], '--')
 
 
 class SeedAssessmentQuestionsTests(APITestCase):

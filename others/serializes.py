@@ -27,8 +27,8 @@ class DailyReportSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DailyReport
-        exclude = ('created_at', 'updated_at')
-        read_only_fields = ('user',)
+        exclude = ('updated_at',)
+        read_only_fields = ('user', 'created_at')
 
     def validate_answers(self, value):
         questions = {
