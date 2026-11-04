@@ -93,6 +93,77 @@ class AssessmentQuestionTests(APITestCase):
         self.assertEqual(report.answers, [])
 
 
+class RatedCheckinTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(email='rated@example.com', password='pass12345')
+        self.client.force_authenticate(self.user)
+
+    def checkin(self, **payload):
+        return self.client.post('/api/checkin/', payload, format='json')
+
+    def test_quick_checkin_needs_only_mood_and_anxiety(self):
+        response = self.checkin(check_in_type='quick', mood_rating=3, anxiety_rating=8)
+
+        self.assertEqual(response.status_code, 201, response.data)
+        report = DailyReport.objects.get()
+        self.assertEqual((report.assesment, report.score, report.journal), ('sad', 3, ''))
+        self.assertIsNotNone(report.time)
+
+    def test_detailed_checkin_requires_sleep(self):
+        response = self.checkin(check_in_type='detailed', mood_rating=7, anxiety_rating=2)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('sleep_hours', response.data)
+
+        response = self.checkin(
+            check_in_type='detailed', mood_rating=7, anxiety_rating=2,
+            sleep_hours='7.5', sleep_quality='good', journal='Nice walk.',
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(DailyReport.objects.get().assesment, 'good')
+
+    def test_rejects_out_of_range_values(self):
+        for extra in ({'mood_rating': 11}, {'anxiety_rating': -1}, {'sleep_hours': '7.3'}, {'sleep_hours': '25'}):
+            with self.subTest(extra=extra):
+                payload = {'check_in_type': 'quick', 'mood_rating': 5, 'anxiety_rating': 5, **extra}
+                self.assertEqual(self.checkin(**payload).status_code, 400)
+
+    def test_mood_label_boundaries(self):
+        from .models import mood_label_for_rating
+        self.assertEqual(
+            [mood_label_for_rating(r) for r in range(11)],
+            ['depressed', 'depressed', 'sad', 'sad', 'neutral', 'neutral', 'good', 'good', 'excellent', 'excellent', 'excellent'],
+        )
+
+    def test_multiple_checkins_a_day_notify_streak_once(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from django.utils import timezone
+
+        now = timezone.now()
+        for days_ago in (2, 1):
+            DailyReport.objects.create(user=self.user, mood_rating=5, anxiety_rating=5, time=now - timedelta(days=days_ago))
+
+        with patch('others.views.send_streak_notification') as task:
+            self.checkin(check_in_type='quick', mood_rating=5, anxiety_rating=5)
+            self.checkin(check_in_type='quick', mood_rating=6, anxiety_rating=4)
+
+        self.assertEqual(DailyReport.objects.count(), 4)
+        task.delay.assert_called_once_with(str(self.user.id), 3)
+
+    def test_ai_context_summarises_recent_checkins_without_journal(self):
+        from .views import AIChatSendMessageView
+
+        DailyReport.objects.create(
+            user=self.user, check_in_type='detailed', mood_rating=4, anxiety_rating=7,
+            sleep_hours='5.5', sleep_quality='poor', tags=['Work/School'], journal='private words',
+        )
+        summary = AIChatSendMessageView._checkin_summary(self.user)
+
+        self.assertIn('mood 4/10; anxiety 7/10; slept 5.5h (poor); factors: Work/School', summary)
+        self.assertNotIn('private words', summary)
+        self.assertIsNone(AIChatSendMessageView._checkin_summary(get_user_model().objects.create_user(email='new@example.com')))
+
+
 class SeedAssessmentQuestionsTests(APITestCase):
     def test_seeds_default_question_once(self):
         call_command('seed_assessment_questions', stdout=StringIO())

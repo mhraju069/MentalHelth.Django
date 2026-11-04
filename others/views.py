@@ -9,7 +9,7 @@ from django.db import models
 from django.db.models import Prefetch
 from django.conf import settings
 from django.utils import timezone
-from datetime import datetime
+from datetime import datetime, timedelta
 from .models import AssessmentOption, AssessmentQuestion, DailyReport, AIChatSession, AIChatMessage, FCMDevice, Notification
 from .serializes import AssessmentQuestionSerializer, DailyReportSerializer, FeedbackSerializer, FCMDeviceSerializer, NotificationSerializer
 from core.pagination import CustomLimitPagination
@@ -42,6 +42,8 @@ OPENAI_MODEL = "gpt-4o-mini"
 OPENAI_TIMEOUT = 30  # seconds
 MAX_CONTEXT_MESSAGES = 30
 MAX_MESSAGE_LENGTH = 2000
+CHECKIN_CONTEXT_DAYS = 14
+MAX_CONTEXT_CHECKINS = 40
 
 
 # ─── AI Chat Views ───────────────────────────────────────────────────────────
@@ -94,6 +96,13 @@ class AIChatSendMessageView(views.APIView):
         # ── Build context window ─────────────────────────────────────────
         messages = self._build_context(session)
 
+        # Recent check-ins help the AI notice patterns. Built fresh per
+        # request (never stored in the chat history) so it stays current.
+        checkin_summary = self._checkin_summary(request.user)
+        if checkin_summary:
+            index = 1 if messages and messages[0]["role"] == "system" else 0
+            messages.insert(index, {"role": "system", "content": checkin_summary})
+
         # ── Call OpenAI ──────────────────────────────────────────────────
         ai_reply, error_response = self._call_openai(messages)
 
@@ -111,6 +120,45 @@ class AIChatSendMessageView(views.APIView):
         })
 
     # ── Helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _checkin_summary(user):
+        """
+        The user's own check-ins from the last CHECKIN_CONTEXT_DAYS days as
+        short lines (ratings, sleep, chosen factors). Journal text and free-
+        text answers are left out.
+        """
+        since = timezone.now() - timedelta(days=CHECKIN_CONTEXT_DAYS)
+        reports = DailyReport.objects.filter(user=user, time__gte=since).order_by("-time")[:MAX_CONTEXT_CHECKINS]
+
+        lines = []
+        for report in reports:
+            parts = []
+            if report.mood_rating is not None:
+                parts.append(f"mood {report.mood_rating}/10")
+            elif report.assesment:
+                parts.append(f"mood {report.assesment}")
+            if report.anxiety_rating is not None:
+                parts.append(f"anxiety {report.anxiety_rating}/10")
+            if report.sleep_hours is not None:
+                quality = f" ({report.sleep_quality})" if report.sleep_quality else ""
+                parts.append(f"slept {report.sleep_hours:g}h{quality}")
+            if report.tags:
+                parts.append("factors: " + ", ".join(report.tags))
+            for answer in report.answers or []:
+                if answer.get("type") == "single_choice":
+                    parts.append(f"{answer['question']} {answer['answer']}")
+            when = timezone.localtime(report.time).strftime("%a %b %d, %H:%M")
+            lines.append(f"- {when} ({report.get_check_in_type_display().lower()}): " + "; ".join(parts))
+
+        if not lines:
+            return None
+        return (
+            f"The user's own check-ins from the last {CHECKIN_CONTEXT_DAYS} days, most recent first. "
+            "Use them to gently notice patterns (for example sleep and mood, or recurring stressors) "
+            "when it is relevant to the conversation. Do not recite them unprompted, do not diagnose, "
+            "and do not treat the numbers as clinical scores.\n" + "\n".join(lines)
+        )
 
     @staticmethod
     def _build_context(session):
@@ -306,10 +354,16 @@ class DailyReportView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         report = serializer.save(user=self.request.user)
-        
+
+        # Several check-ins a day are allowed, but only the day's first one
+        # can extend the streak, so only that one may trigger the notification.
+        first_today = not DailyReport.objects.filter(
+            user=self.request.user, time__date=report.time.date()
+        ).exclude(pk=report.pk).exists()
+
         # Check for streak notification (Send on 3rd and 7th day)
         streak = calculate_streak(self.request.user)
-        if streak in [3, 7]:
+        if first_today and streak in [3, 7]:
             send_streak_notification.delay(str(self.request.user.id), streak)
             
         return report

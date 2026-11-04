@@ -20,8 +20,8 @@ class AssessmentQuestionAdmin(ModelAdmin):
 
 @admin.register(DailyReport)
 class DailyReportAdmin(ModelAdmin):
-    list_display = ('user', 'assesment', 'time', 'score')
-    list_filter = ('assesment', 'time')
+    list_display = ('user', 'check_in_type', 'assesment', 'mood_rating', 'anxiety_rating', 'sleep_hours', 'time')
+    list_filter = ('check_in_type', 'assesment', 'sleep_quality', 'time')
     search_fields = ('user__email', 'journal')
 
 @admin.register(Feedback)

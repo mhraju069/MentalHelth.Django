@@ -1,17 +1,47 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 import uuid
 
 # Create your models here.
 
+def mood_label_for_rating(rating):
+    """Map a 0–10 mood rating onto the five mood labels used by analytics."""
+    if rating >= 8:
+        return 'excellent'
+    if rating >= 6:
+        return 'good'
+    if rating >= 4:
+        return 'neutral'
+    if rating >= 2:
+        return 'sad'
+    return 'depressed'
+
+
 class DailyReport(models.Model):
     LIST= (('excellent', 'Excellent'),('good', 'Good'),('neutral', 'Neutral'),('sad', 'Sad'),('depressed', 'Depressed'),)
-    
+    QUICK = 'quick'
+    DETAILED = 'detailed'
+    CHECK_IN_TYPES = ((QUICK, 'Quick check-in'), (DETAILED, 'Detailed assessment'))
+    SLEEP_QUALITY = (('poor', 'Poor'), ('okay', 'Okay'), ('good', 'Good'), ('great', 'Great'))
+    RATING_VALIDATORS = [MinValueValidator(0), MaxValueValidator(10)]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='checkins')
-    assesment = models.CharField(max_length=100, choices=LIST)
-    time = models.DateTimeField()
-    journal = models.TextField()
+    check_in_type = models.CharField(max_length=20, choices=CHECK_IN_TYPES, default=DETAILED)
+    # Derived from mood_rating when one is given (older app versions send
+    # the label directly).
+    assesment = models.CharField(max_length=100, choices=LIST, blank=True)
+    mood_rating = models.PositiveSmallIntegerField(null=True, blank=True, validators=RATING_VALIDATORS)
+    anxiety_rating = models.PositiveSmallIntegerField(null=True, blank=True, validators=RATING_VALIDATORS)
+    sleep_hours = models.DecimalField(
+        max_digits=3, decimal_places=1, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(24)],
+    )
+    sleep_quality = models.CharField(max_length=10, choices=SLEEP_QUALITY, blank=True, default='')
+    time = models.DateTimeField(default=timezone.now)
+    journal = models.TextField(blank=True)
     tags = models.JSONField(default=list)
     # Answers to the admin-managed assessment questions, stored as a
     # snapshot ({question_id, question, type, answer}) so history still
@@ -25,7 +55,10 @@ class DailyReport(models.Model):
         return f"{self.time} - {self.assesment}"
 
     def save(self, *args, **kwargs):
-        if self.assesment == 'excellent':
+        if self.mood_rating is not None:
+            self.assesment = mood_label_for_rating(self.mood_rating)
+            self.score = self.mood_rating
+        elif self.assesment == 'excellent':
             self.score = 10
         elif self.assesment == 'good':
             self.score = 8

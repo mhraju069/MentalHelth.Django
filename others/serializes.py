@@ -58,6 +58,26 @@ class DailyReportSerializer(serializers.ModelSerializer):
                 })
         return snapshot
 
+    def _validate_ratings(self, attrs):
+        if attrs.get('mood_rating') is None:
+            # Older app versions send the mood label instead of a rating.
+            if not attrs.get('assesment'):
+                raise serializers.ValidationError({'mood_rating': 'Please rate your mood.'})
+            return
+
+        if attrs.get('anxiety_rating') is None:
+            raise serializers.ValidationError({'anxiety_rating': 'Please rate your anxiety.'})
+
+        sleep_hours = attrs.get('sleep_hours')
+        if sleep_hours is not None and (sleep_hours * 2) % 1:
+            raise serializers.ValidationError({'sleep_hours': 'Use half-hour steps, e.g. 7 or 7.5.'})
+
+        if attrs.get('check_in_type', DailyReport.DETAILED) == DailyReport.DETAILED:
+            if sleep_hours is None:
+                raise serializers.ValidationError({'sleep_hours': 'Please enter how long you slept.'})
+            if not attrs.get('sleep_quality'):
+                raise serializers.ValidationError({'sleep_quality': 'Please choose how well you slept.'})
+
     def _clean_answer(self, question, answer):
         if answer in (None, '', []):
             return None
@@ -80,6 +100,8 @@ class DailyReportSerializer(serializers.ModelSerializer):
         return list(dict.fromkeys(labels))
 
     def validate(self, attrs):
+        self._validate_ratings(attrs)
+
         answers = attrs.get('answers')
         # Older app versions send `tags` directly; newer ones send answers
         # and the tags are derived from questions marked "saves as tags".
