@@ -2,6 +2,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from others.assessments import record_daily_response
+from others.instruments import INSTRUMENTS
 from others.models import AssessmentOption, AssessmentQuestion, DailyReport, Questionnaire
 
 # The question the app shipped with before questions became admin-managed.
@@ -65,6 +66,24 @@ class Command(BaseCommand):
             # Questions saved before keys existed.
             for question in AssessmentQuestion.objects.filter(key=''):
                 question.save()
+
+            # Validated instruments: added once, locked. An existing one is
+            # never touched (it may hold results, or be deliberately off).
+            for data in INSTRUMENTS:
+                if Questionnaire.objects.filter(key=data['key']).exists():
+                    continue
+                data = dict(data)
+                questions = data.pop('questions')
+                questionnaire = Questionnaire.objects.create(is_locked=True, **data)
+                for order, item in enumerate(questions):
+                    item = dict(item)
+                    options = item.pop('options')
+                    question = AssessmentQuestion.objects.create(questionnaire=questionnaire, order=order, **item)
+                    AssessmentOption.objects.bulk_create(
+                        AssessmentOption(question=question, label=label, value=value, order=i)
+                        for i, (label, value) in enumerate(options)
+                    )
+                self.stdout.write(f'Added {questionnaire.name}.')
 
         pending = (
             DailyReport.objects.exclude(answers=[])

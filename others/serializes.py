@@ -65,7 +65,7 @@ class QuestionnaireDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Questionnaire
-        fields = ('key', 'name', 'description', 'instructions', 'copyright_notice', 'scoring', 'questions')
+        fields = ('key', 'name', 'description', 'instructions', 'copyright_notice', 'scoring', 'severity_bands', 'questions')
 
     def get_questions(self, obj):
         # Prefetched as active-only by the view.
@@ -86,8 +86,8 @@ class AssessmentResponseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AssessmentResponse
-        fields = ('id', 'questionnaire', 'total_score', 'severity', 'created_at', 'items', 'answers')
-        read_only_fields = ('id', 'total_score', 'severity', 'created_at')
+        fields = ('id', 'questionnaire', 'total_score', 'severity', 'needs_safety_followup', 'created_at', 'items', 'answers')
+        read_only_fields = ('id', 'total_score', 'severity', 'needs_safety_followup', 'created_at')
 
     def validate_answers(self, value):
         questionnaire = self.context['questionnaire']

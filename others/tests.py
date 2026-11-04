@@ -235,8 +235,7 @@ class SetupAssessmentsTests(APITestCase):
         self.run_setup()
         self.run_setup()
 
-        question = AssessmentQuestion.objects.get()
-        self.assertEqual(question.questionnaire.key, Questionnaire.DAILY_KEY)
+        question = AssessmentQuestion.objects.get(questionnaire__is_daily=True)
         self.assertEqual(question.key, 'mood-factors')
         self.assertTrue(question.saves_as_tags)
         self.assertEqual(question.options.count(), 10)
@@ -287,13 +286,15 @@ class QuestionnaireApiTests(APITestCase):
 
     def test_lists_standalone_questionnaires_with_due_status(self):
         data = self.client.get('/api/assessments/').data
-        self.assertEqual([q['key'] for q in data], ['mini-screen'])  # daily check-in is not listed
-        self.assertEqual((data[0]['is_due'], data[0]['last_completed_at']), (True, None))
+        mini = lambda data: next(q for q in data if q['key'] == 'mini-screen')
+        data = self.client.get('/api/assessments/').data
+        self.assertNotIn(Questionnaire.DAILY_KEY, [q['key'] for q in data])
+        self.assertEqual((mini(data)['is_due'], mini(data)['last_completed_at']), (True, None))
 
         self.client.post('/api/assessments/mini-screen/responses/', {'answers': self.answer('Not at all', 'Not at all')}, format='json')
         data = self.client.get('/api/assessments/').data
-        self.assertFalse(data[0]['is_due'])
-        self.assertIsNotNone(data[0]['next_due_at'])
+        self.assertFalse(mini(data)['is_due'])
+        self.assertIsNotNone(mini(data)['next_due_at'])
 
     def test_detail_returns_questions_with_scored_options(self):
         data = self.client.get('/api/assessments/mini-screen/').data
@@ -334,6 +335,60 @@ class QuestionnaireApiTests(APITestCase):
         daily = AssessmentResponse.objects.get(questionnaire__is_daily=True)
         self.assertEqual(daily.daily_report_id, DailyReport.objects.get().id)
         self.assertEqual(list(daily.items.values_list('question_key', 'answer')), [('mood-factors', ['Stress'])])
+
+
+class ValidatedInstrumentTests(APITestCase):
+    def setUp(self):
+        call_command('setup_assessments', stdout=StringIO())
+        self.user = get_user_model().objects.create_user(email='phq@example.com', password='pass12345')
+        self.client.force_authenticate(self.user)
+
+    def submit(self, key, item_answer, last_item=None, difficulty=None):
+        questions = self.client.get(f'/api/assessments/{key}/').data['questions']
+        scored = [q for q in questions if q['question_type'] == 'scale']
+        answers = [{'question_id': q['id'], 'answer': item_answer} for q in scored]
+        if last_item:
+            answers[-1]['answer'] = last_item
+        if difficulty:
+            answers.append({'question_id': questions[-1]['id'], 'answer': difficulty})
+        return self.client.post(f'/api/assessments/{key}/responses/', {'answers': answers}, format='json')
+
+    def test_instruments_are_seeded_locked_with_published_structure(self):
+        phq9 = Questionnaire.objects.get(key='phq-9')
+        gad7 = Questionnaire.objects.get(key='gad-7')
+        self.assertTrue(phq9.is_locked and gad7.is_locked)
+        self.assertEqual(phq9.questions.filter(question_type='scale').count(), 9)
+        self.assertEqual(gad7.questions.filter(question_type='scale').count(), 7)
+        self.assertEqual(
+            list(phq9.questions.get(key='phq9-1').options.values_list('label', 'value')),
+            [('Not at all', 0), ('Several days', 1), ('More than half the days', 2), ('Nearly every day', 3)],
+        )
+        # Re-running setup never duplicates or alters them.
+        call_command('setup_assessments', stdout=StringIO())
+        self.assertEqual(Questionnaire.objects.filter(key='phq-9').count(), 1)
+
+    def test_phq9_scores_and_severity(self):
+        for answer, total, severity in [
+            ('Not at all', 0, 'Minimal'), ('Several days', 9, 'Mild'),
+            ('More than half the days', 18, 'Moderately severe'), ('Nearly every day', 27, 'Severe'),
+        ]:
+            with self.subTest(answer=answer):
+                response = self.submit('phq-9', answer)
+                self.assertEqual(response.status_code, 201, response.data)
+                self.assertEqual((response.data['total_score'], response.data['severity']), (total, severity))
+
+    def test_gad7_scores_and_difficulty_is_optional_and_unscored(self):
+        response = self.submit('gad-7', 'Nearly every day', difficulty='Very difficult')
+        self.assertEqual((response.data['total_score'], response.data['severity']), (21, 'Severe'))
+        self.assertEqual(response.data['items'][-1]['value'], None)
+
+    def test_phq9_item_9_flags_safety_followup(self):
+        flagged = self.submit('phq-9', 'Not at all', last_item='Several days')
+        self.assertTrue(flagged.data['needs_safety_followup'])
+        self.assertEqual(flagged.data['total_score'], 1)
+
+        clear = self.submit('phq-9', 'Nearly every day', last_item='Not at all')
+        self.assertFalse(clear.data['needs_safety_followup'])
 
 
 class AssessmentAdminTests(APITestCase):

@@ -30,7 +30,7 @@ class AssessmentQuestionAdmin(ModelAdmin):
     list_filter = ('questionnaire', 'is_active', 'question_type', 'is_required')
     list_select_related = ('questionnaire',)
     search_fields = ('text', 'key')
-    fields = ('questionnaire', 'text', 'help_text', 'question_type', 'is_required', 'saves_as_tags', 'key', 'version', 'order', 'is_active')
+    fields = ('questionnaire', 'text', 'help_text', 'question_type', 'is_required', 'saves_as_tags', 'safety_threshold', 'key', 'version', 'order', 'is_active')
     readonly_fields = ('version',)
     inlines = [AssessmentOptionInline]
 
@@ -159,11 +159,11 @@ class AssessmentResponseItemInline(TabularInline):
 
 @admin.register(AssessmentResponse)
 class AssessmentResponseAdmin(ModelAdmin):
-    list_display = ('user', 'questionnaire', 'total_score', 'severity', 'created_at')
-    list_filter = ('questionnaire', 'severity', 'created_at')
+    list_display = ('user', 'questionnaire', 'total_score', 'severity', 'needs_safety_followup', 'created_at')
+    list_filter = ('questionnaire', 'needs_safety_followup', 'severity', 'created_at')
     list_select_related = ('user', 'questionnaire')
     search_fields = ('user__email',)
-    fields = ('user', 'questionnaire', 'daily_report', 'total_score', 'severity', 'created_at')
+    fields = ('user', 'questionnaire', 'daily_report', 'total_score', 'severity', 'needs_safety_followup', 'created_at')
     readonly_fields = fields
     inlines = [AssessmentResponseItemInline]
 

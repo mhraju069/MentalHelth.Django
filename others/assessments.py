@@ -99,19 +99,27 @@ def score(questionnaire, items):
 @transaction.atomic
 def save_response(user, questionnaire, items, daily_report=None, created_at=None):
     total, severity = score(questionnaire, items)
+    thresholds = {
+        str(pk): threshold for pk, threshold in AssessmentQuestion.objects.filter(
+            pk__in=[item['question_id'] for item in items]
+        ).values_list('pk', 'safety_threshold')
+    }
+    question_ids = set(thresholds)
+    needs_safety_followup = any(
+        thresholds.get(item['question_id']) is not None
+        and item.get('value') is not None
+        and item['value'] >= thresholds[item['question_id']]
+        for item in items
+    )
     response = AssessmentResponse.objects.create(
         user=user,
         questionnaire=questionnaire,
         daily_report=daily_report,
         total_score=total,
         severity=severity,
+        needs_safety_followup=needs_safety_followup,
         **({'created_at': created_at} if created_at else {}),
     )
-    question_ids = {
-        str(pk) for pk in AssessmentQuestion.objects.filter(
-            pk__in=[item['question_id'] for item in items]
-        ).values_list('pk', flat=True)
-    }
     AssessmentResponseItem.objects.bulk_create(
         AssessmentResponseItem(
             response=response,

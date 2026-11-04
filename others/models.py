@@ -169,6 +169,11 @@ class AssessmentQuestion(models.Model):
     # Goes up when the wording or answers change after people have
     # answered, so every saved answer records which version was asked.
     version = models.PositiveIntegerField(default=1, editable=False)
+    safety_threshold = models.IntegerField(
+        null=True, blank=True,
+        help_text='If an answer scores at least this, the result is flagged and the app immediately shows '
+                  'crisis resources (e.g. 1 for PHQ-9 item 9). Empty = no safety check.',
+    )
     text = models.CharField(max_length=255)
     help_text = models.CharField(max_length=255, blank=True, help_text='Optional hint shown under the question.')
     question_type = models.CharField(max_length=20, choices=TYPES, default=MULTIPLE_CHOICE)
@@ -245,6 +250,8 @@ class AssessmentResponse(models.Model):
     )
     total_score = models.IntegerField(null=True, blank=True)
     severity = models.CharField(max_length=50, blank=True, default='')
+    # An answer reached its question's safety threshold.
+    needs_safety_followup = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
