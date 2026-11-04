@@ -125,6 +125,9 @@ class Questionnaire(models.Model):
 
     def clean(self):
         from django.core.exceptions import ValidationError
+        from .instruments import RESERVED_KEYS
+        if self.key in RESERVED_KEYS:
+            raise ValidationError({'key': f'"{self.key}" is reserved; please choose another key.'})
         bands = self.severity_bands or []
         if not isinstance(bands, list) or not all(
             isinstance(b, dict) and isinstance(b.get('min'), int) and isinstance(b.get('max'), int)

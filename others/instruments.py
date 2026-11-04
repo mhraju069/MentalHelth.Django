@@ -51,6 +51,9 @@ def _items(prefix, texts, safety=None):
     ]
 
 
+# Not allowed as a questionnaire key: it's an API path (/api/assessments/trends/).
+RESERVED_KEYS = {'trends'}
+
 INSTRUMENTS = [
     {
         'key': 'phq-9',

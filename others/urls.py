@@ -3,6 +3,7 @@ from .views import (
     QuestionnaireDetailView,
     QuestionnaireListView,
     QuestionnaireResponseView,
+    QuestionnaireTrendsView,
     AssessmentQuestionListView,
     DailyReportView,
     GetReportView,
@@ -22,6 +23,8 @@ urlpatterns = [
     path('checkin/', DailyReportView.as_view()),
     path('assessment/questions/', AssessmentQuestionListView.as_view()),
     path('assessments/', QuestionnaireListView.as_view()),
+    # Before <slug:key>/ so "trends" isn't read as a questionnaire key.
+    path('assessments/trends/', QuestionnaireTrendsView.as_view()),
     path('assessments/<slug:key>/', QuestionnaireDetailView.as_view()),
     path('assessments/<slug:key>/responses/', QuestionnaireResponseView.as_view()),
     path('report/', GetReportView.as_view()),

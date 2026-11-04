@@ -10,7 +10,7 @@ from django.db.models import Prefetch
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
-from .assessments import active_questions, daily_questions, save_response
+from .assessments import active_questions, daily_questions, max_score, save_response
 from .models import AssessmentQuestion, AssessmentResponse, DailyReport, Questionnaire, AIChatSession, AIChatMessage, FCMDevice, Notification
 from .serializes import (
     AssessmentQuestionSerializer, AssessmentResponseSerializer, QuestionnaireDetailSerializer,
@@ -48,6 +48,8 @@ OPENAI_TIMEOUT = 30  # seconds
 MAX_CONTEXT_MESSAGES = 30
 MAX_MESSAGE_LENGTH = 2000
 CHECKIN_CONTEXT_DAYS = 14
+TREND_MONTHS = 6
+MAX_TREND_POINTS = 30
 MAX_CONTEXT_CHECKINS = 40
 
 
@@ -103,10 +105,10 @@ class AIChatSendMessageView(views.APIView):
 
         # Recent check-ins help the AI notice patterns. Built fresh per
         # request (never stored in the chat history) so it stays current.
-        checkin_summary = self._checkin_summary(request.user)
-        if checkin_summary:
-            index = 1 if messages and messages[0]["role"] == "system" else 0
-            messages.insert(index, {"role": "system", "content": checkin_summary})
+        index = 1 if messages and messages[0]["role"] == "system" else 0
+        for summary in (self._trend_summary(request.user), self._checkin_summary(request.user)):
+            if summary:
+                messages.insert(index, {"role": "system", "content": summary})
 
         # ── Call OpenAI ──────────────────────────────────────────────────
         ai_reply, error_response = self._call_openai(messages)
@@ -125,6 +127,67 @@ class AIChatSendMessageView(views.APIView):
         })
 
     # ── Helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _trend_summary(user):
+        """
+        Longer-term picture: monthly check-in averages and questionnaire
+        results (PHQ-9, GAD-7, …) from the last TREND_MONTHS months.
+        """
+        from django.db.models import Avg, Count
+        from django.db.models.functions import TruncMonth
+
+        since = timezone.now() - timedelta(days=30 * TREND_MONTHS)
+        months = (
+            DailyReport.objects.filter(user=user, created_at__gte=since)
+            .annotate(month=TruncMonth("created_at"))
+            .values("month")
+            .annotate(n=Count("id"), mood=Avg("score"), anxiety=Avg("anxiety_rating"), sleep=Avg("sleep_hours"))
+            .order_by("month")
+        )
+        month_lines = []
+        for row in months:
+            parts = [f"{row['n']} check-in{'s' if row['n'] != 1 else ''}"]
+            if row["mood"] is not None:
+                parts.append(f"average mood {row['mood']:.1f}/10")
+            if row["anxiety"] is not None:
+                parts.append(f"average anxiety {row['anxiety']:.1f}/10")
+            if row["sleep"] is not None:
+                parts.append(f"average sleep {float(row['sleep']):.1f}h")
+            month_lines.append(f"- {row['month']:%b %Y}: " + "; ".join(parts))
+
+        responses = (
+            AssessmentResponse.objects.filter(
+                user=user, created_at__gte=since, questionnaire__is_daily=False, total_score__isnull=False,
+            ).select_related("questionnaire").order_by("created_at")[:MAX_TREND_POINTS]
+        )
+        result_lines = []
+        for r in responses:
+            when = timezone.localtime(r.created_at).strftime("%b %d, %Y")
+            severity = f" ({r.severity})" if r.severity else ""
+            result_lines.append(f"- {r.questionnaire.name}, {when}: score {r.total_score}{severity}")
+
+        if not month_lines and not result_lines:
+            return None
+        text = (
+            f"Longer-term picture for this user over the last {TREND_MONTHS} months, oldest first. Use it to "
+            "notice gradual changes (improving, worsening, seasonal) when relevant; mention them gently and "
+            "only when they help the conversation. Questionnaire scores are screening results, not diagnoses."
+        )
+        if month_lines:
+            text += "\nMonthly check-in averages:\n" + "\n".join(month_lines)
+        if result_lines:
+            text += "\nQuestionnaire results:\n" + "\n".join(result_lines)
+
+        if AssessmentResponse.objects.filter(
+            user=user, needs_safety_followup=True, created_at__gte=timezone.now() - timedelta(days=30),
+        ).exists():
+            text += (
+                "\nIn the last 30 days this user reported thoughts of being better off dead or of hurting "
+                "themselves on a questionnaire. Be attentive: if the conversation touches on low mood or "
+                "hopelessness, gently ask how they are doing now and remind them they can call or text 988."
+            )
+        return text
 
     @staticmethod
     def _checkin_summary(user):
@@ -385,6 +448,41 @@ class QuestionnaireDetailView(views.APIView):
 
     def get(self, request, key):
         return Response(QuestionnaireDetailSerializer(get_standalone_questionnaire(key)).data)
+
+
+class QuestionnaireTrendsView(views.APIView):
+    """
+    GET /api/assessments/trends/ — each standalone questionnaire with the
+    user's results from the last TREND_MONTHS months, oldest first.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        since = timezone.now() - timedelta(days=30 * TREND_MONTHS)
+        questionnaires = list(
+            Questionnaire.objects.filter(is_active=True, is_daily=False).prefetch_related(
+                Prefetch('questions', queryset=active_questions(AssessmentQuestion.objects.all()))
+            )
+        )
+        results = {}
+        for response in AssessmentResponse.objects.filter(
+            user=request.user, questionnaire__in=questionnaires, created_at__gte=since
+        ).order_by('created_at'):
+            results.setdefault(response.questionnaire_id, []).append({
+                'total_score': response.total_score,
+                'severity': response.severity,
+                'created_at': response.created_at.isoformat(),
+            })
+        return Response([
+            {
+                'key': q.key,
+                'name': q.name,
+                'max_score': max_score(q),
+                'severity_bands': q.severity_bands,
+                'results': results.get(q.id, [])[-MAX_TREND_POINTS:],
+            }
+            for q in questionnaires
+        ])
 
 
 class QuestionnaireResponseView(views.APIView):

@@ -88,6 +88,15 @@ def build_items(questions, submitted):
     return items
 
 
+def max_score(questionnaire):
+    """Highest possible total: the top option value of each active scored item."""
+    total = 0
+    for question in questionnaire.questions.filter(is_active=True, question_type=AssessmentQuestion.SCALE):
+        values = [o.value for o in question.options.all() if o.is_active and o.value is not None]
+        total += max(values, default=0)
+    return total
+
+
 def score(questionnaire, items):
     """(total_score, severity) for a questionnaire's answers."""
     if questionnaire.scoring != Questionnaire.SCORING_SUM:

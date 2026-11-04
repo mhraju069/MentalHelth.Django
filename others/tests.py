@@ -337,7 +337,9 @@ class QuestionnaireApiTests(APITestCase):
         self.assertEqual(list(daily.items.values_list('question_key', 'answer')), [('mood-factors', ['Stress'])])
 
 
-class ValidatedInstrumentTests(APITestCase):
+class InstrumentMixin:
+    """Seeded PHQ-9/GAD-7, a signed-in user, and a quick way to submit them."""
+
     def setUp(self):
         call_command('setup_assessments', stdout=StringIO())
         self.user = get_user_model().objects.create_user(email='phq@example.com', password='pass12345')
@@ -353,6 +355,8 @@ class ValidatedInstrumentTests(APITestCase):
             answers.append({'question_id': questions[-1]['id'], 'answer': difficulty})
         return self.client.post(f'/api/assessments/{key}/responses/', {'answers': answers}, format='json')
 
+
+class ValidatedInstrumentTests(InstrumentMixin, APITestCase):
     def test_instruments_are_seeded_locked_with_published_structure(self):
         phq9 = Questionnaire.objects.get(key='phq-9')
         gad7 = Questionnaire.objects.get(key='gad-7')
@@ -389,6 +393,54 @@ class ValidatedInstrumentTests(APITestCase):
 
         clear = self.submit('phq-9', 'Nearly every day', last_item='Not at all')
         self.assertFalse(clear.data['needs_safety_followup'])
+
+
+class TrendTests(InstrumentMixin, APITestCase):
+    def age(self, days):
+        from datetime import timedelta
+        from django.utils import timezone
+        latest = AssessmentResponse.objects.latest('created_at')
+        AssessmentResponse.objects.filter(pk=latest.pk).update(created_at=timezone.now() - timedelta(days=days))
+
+    def test_trends_list_results_oldest_first_with_max_score(self):
+        self.submit('phq-9', 'More than half the days')  # 18
+        self.age(30)
+        self.submit('phq-9', 'Several days')             # 9, today
+        self.submit('gad-7', 'Not at all')
+        self.age(400)                                    # too old for the 6-month window
+
+        data = {t['key']: t for t in self.client.get('/api/assessments/trends/').data}
+        self.assertEqual(data['phq-9']['max_score'], 27)
+        self.assertEqual(data['gad-7']['max_score'], 21)
+        self.assertEqual([r['total_score'] for r in data['phq-9']['results']], [18, 9])
+        self.assertEqual(data['gad-7']['results'], [])
+
+    def test_trends_only_show_the_users_own_results(self):
+        self.submit('phq-9', 'Nearly every day')
+        other = get_user_model().objects.create_user(email='other@example.com', password='pass12345')
+        self.client.force_authenticate(other)
+        data = {t['key']: t for t in self.client.get('/api/assessments/trends/').data}
+        self.assertEqual(data['phq-9']['results'], [])
+
+    def test_ai_trend_summary_has_monthly_averages_scores_and_safety_note(self):
+        from .views import AIChatSendMessageView
+
+        DailyReport.objects.create(user=self.user, mood_rating=4, anxiety_rating=8, sleep_hours='6.5', sleep_quality='poor')
+        DailyReport.objects.create(user=self.user, mood_rating=6, anxiety_rating=6, sleep_hours='7.5', sleep_quality='good')
+        self.submit('phq-9', 'Several days')  # item 9 > 0 → flagged
+        summary = AIChatSendMessageView._trend_summary(self.user)
+
+        self.assertIn('2 check-ins; average mood 5.0/10; average anxiety 7.0/10; average sleep 7.0h', summary)
+        self.assertIn('Mood questionnaire (PHQ-9)', summary)
+        self.assertIn('score 9 (Mild)', summary)
+        self.assertIn('988', summary)
+
+    def test_ai_trend_summary_without_data_or_safety_flag(self):
+        from .views import AIChatSendMessageView
+
+        self.assertIsNone(AIChatSendMessageView._trend_summary(self.user))
+        self.submit('gad-7', 'Several days')
+        self.assertNotIn('988', AIChatSendMessageView._trend_summary(self.user))
 
 
 class AssessmentAdminTests(APITestCase):
