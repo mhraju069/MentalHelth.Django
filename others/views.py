@@ -10,8 +10,13 @@ from django.db.models import Prefetch
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
-from .models import AssessmentOption, AssessmentQuestion, DailyReport, AIChatSession, AIChatMessage, FCMDevice, Notification
-from .serializes import AssessmentQuestionSerializer, DailyReportSerializer, FeedbackSerializer, FCMDeviceSerializer, NotificationSerializer
+from .assessments import active_questions, daily_questions, save_response
+from .models import AssessmentQuestion, AssessmentResponse, DailyReport, Questionnaire, AIChatSession, AIChatMessage, FCMDevice, Notification
+from .serializes import (
+    AssessmentQuestionSerializer, AssessmentResponseSerializer, QuestionnaireDetailSerializer,
+    QuestionnaireSummarySerializer, DailyReportSerializer,
+)
+from .serializes import FeedbackSerializer, FCMDeviceSerializer, NotificationSerializer
 from core.pagination import CustomLimitPagination
 from .utils import calculate_streak, send_fcm_notification
 from .tasks import send_streak_notification
@@ -146,7 +151,7 @@ class AIChatSendMessageView(views.APIView):
             if report.tags:
                 parts.append("factors: " + ", ".join(report.tags))
             for answer in report.answers or []:
-                if answer.get("type") == "single_choice":
+                if answer.get("type") in ("single_choice", "scale"):
                     parts.append(f"{answer['question']} {answer['answer']}")
             when = timezone.localtime(report.created_at).strftime("%a %b %d, %H:%M")
             lines.append(f"- {when} ({report.get_check_in_type_display().lower()}): " + "; ".join(parts))
@@ -334,15 +339,75 @@ class AIChatClearView(views.APIView):
 
 
 class AssessmentQuestionListView(generics.ListAPIView):
-    """Active check-in questions, managed from the admin dashboard."""
+    """Active daily check-in (step 2) questions, managed from the admin dashboard."""
     serializer_class = AssessmentQuestionSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
-        return AssessmentQuestion.objects.filter(is_active=True).prefetch_related(
-            Prefetch('options', queryset=AssessmentOption.objects.filter(is_active=True))
+        return daily_questions()
+
+
+def get_standalone_questionnaire(key):
+    """An active questionnaire other than the daily check-in, with its active questions."""
+    from django.shortcuts import get_object_or_404
+    return get_object_or_404(
+        Questionnaire.objects.prefetch_related(
+            Prefetch('questions', queryset=active_questions(AssessmentQuestion.objects.all()))
+        ),
+        key=key, is_active=True, is_daily=False,
+    )
+
+
+class QuestionnaireListView(generics.ListAPIView):
+    """GET /api/assessments/ — standalone questionnaires and whether each is due."""
+    serializer_class = QuestionnaireSummarySerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
+
+    def get_queryset(self):
+        return Questionnaire.objects.filter(is_active=True, is_daily=False)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        latest = (
+            AssessmentResponse.objects.filter(user=self.request.user)
+            .values('questionnaire_id')
+            .annotate(last=models.Max('created_at'))
         )
+        context['last_completed'] = {row['questionnaire_id']: row['last'] for row in latest}
+        return context
+
+
+class QuestionnaireDetailView(views.APIView):
+    """GET /api/assessments/<key>/ — a questionnaire with its questions."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, key):
+        return Response(QuestionnaireDetailSerializer(get_standalone_questionnaire(key)).data)
+
+
+class QuestionnaireResponseView(views.APIView):
+    """
+    GET  /api/assessments/<key>/responses/ — the user's past results, newest first.
+    POST /api/assessments/<key>/responses/ — submit answers; returns the scored result.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, key):
+        questionnaire = get_standalone_questionnaire(key)
+        responses = (
+            AssessmentResponse.objects.filter(user=request.user, questionnaire=questionnaire)
+            .prefetch_related('items')[:100]
+        )
+        return Response(AssessmentResponseSerializer(responses, many=True).data)
+
+    def post(self, request, key):
+        questionnaire = get_standalone_questionnaire(key)
+        serializer = AssessmentResponseSerializer(data=request.data, context={'questionnaire': questionnaire})
+        serializer.is_valid(raise_exception=True)
+        response = save_response(request.user, questionnaire, serializer.validated_data['answers'])
+        return Response(AssessmentResponseSerializer(response).data, status=status.HTTP_201_CREATED)
 
 
 class DailyReportView(generics.ListCreateAPIView):

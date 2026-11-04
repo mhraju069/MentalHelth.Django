@@ -4,7 +4,10 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from rest_framework.test import APITestCase
 
-from .models import AssessmentOption, AssessmentQuestion, DailyReport
+from .assessments import record_daily_response
+from .models import (
+    AssessmentOption, AssessmentQuestion, AssessmentResponse, AssessmentResponseItem, DailyReport, Questionnaire,
+)
 
 
 class AssessmentQuestionTests(APITestCase):
@@ -224,11 +227,188 @@ class AnalyticsAccuracyTests(APITestCase):
         self.assertEqual(self.client.get('/api/insights/').data['mood_trend'], '--')
 
 
-class SeedAssessmentQuestionsTests(APITestCase):
-    def test_seeds_default_question_once(self):
-        call_command('seed_assessment_questions', stdout=StringIO())
-        call_command('seed_assessment_questions', stdout=StringIO())
+class SetupAssessmentsTests(APITestCase):
+    def run_setup(self):
+        call_command('setup_assessments', stdout=StringIO())
+
+    def test_seeds_default_question_once_into_daily_questionnaire(self):
+        self.run_setup()
+        self.run_setup()
 
         question = AssessmentQuestion.objects.get()
+        self.assertEqual(question.questionnaire.key, Questionnaire.DAILY_KEY)
+        self.assertEqual(question.key, 'mood-factors')
         self.assertTrue(question.saves_as_tags)
         self.assertEqual(question.options.count(), 10)
+
+    def test_links_existing_questions_and_backfills_old_answers(self):
+        user = get_user_model().objects.create_user(email='old@example.com', password='pass12345')
+        legacy = AssessmentQuestion.objects.create(text='Energy level?', question_type='single_choice')
+        report = DailyReport.objects.create(
+            user=user, assesment='good',
+            # Snapshot format from before questionnaires (no key/version/value).
+            answers=[{'question_id': str(legacy.id), 'question': 'Energy level?', 'type': 'single_choice', 'answer': 'Low'}],
+        )
+        DailyReport.objects.create(user=user, assesment='sad')  # no answers: nothing to copy
+
+        self.run_setup()
+        self.run_setup()
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.questionnaire.key, Questionnaire.DAILY_KEY)
+        self.assertEqual(legacy.key, 'energy-level')
+        response = AssessmentResponse.objects.get()
+        self.assertEqual((response.daily_report, response.user, response.created_at), (report, user, report.created_at))
+        item = response.items.get()
+        self.assertEqual((item.question, item.question_key, item.question_version, item.answer), (legacy, 'energy-level', 1, 'Low'))
+
+
+class QuestionnaireApiTests(APITestCase):
+    def setUp(self):
+        call_command('setup_assessments', stdout=StringIO())
+        self.user = get_user_model().objects.create_user(email='q@example.com', password='pass12345')
+        self.client.force_authenticate(self.user)
+
+        self.screen = Questionnaire.objects.create(
+            key='mini-screen', name='Mini screen', scoring=Questionnaire.SCORING_SUM, frequency_days=14,
+            severity_bands=[{'min': 0, 'max': 2, 'label': 'Minimal'}, {'min': 3, 'max': 6, 'label': 'Moderate'}],
+        )
+        self.items = []
+        for i, text in enumerate(['Little interest?', 'Feeling down?']):
+            question = AssessmentQuestion.objects.create(
+                questionnaire=self.screen, text=text, question_type=AssessmentQuestion.SCALE, order=i,
+            )
+            for value, label in enumerate(['Not at all', 'Several days', 'More than half the days', 'Nearly every day']):
+                AssessmentOption.objects.create(question=question, label=label, value=value, order=value)
+            self.items.append(question)
+
+    def answer(self, *labels):
+        return [{'question_id': str(q.id), 'answer': label} for q, label in zip(self.items, labels)]
+
+    def test_lists_standalone_questionnaires_with_due_status(self):
+        data = self.client.get('/api/assessments/').data
+        self.assertEqual([q['key'] for q in data], ['mini-screen'])  # daily check-in is not listed
+        self.assertEqual((data[0]['is_due'], data[0]['last_completed_at']), (True, None))
+
+        self.client.post('/api/assessments/mini-screen/responses/', {'answers': self.answer('Not at all', 'Not at all')}, format='json')
+        data = self.client.get('/api/assessments/').data
+        self.assertFalse(data[0]['is_due'])
+        self.assertIsNotNone(data[0]['next_due_at'])
+
+    def test_detail_returns_questions_with_scored_options(self):
+        data = self.client.get('/api/assessments/mini-screen/').data
+        self.assertEqual([q['text'] for q in data['questions']], ['Little interest?', 'Feeling down?'])
+        self.assertEqual([o['value'] for o in data['questions'][0]['options']], [0, 1, 2, 3])
+
+    def test_submission_is_scored_and_kept_in_history(self):
+        response = self.client.post(
+            '/api/assessments/mini-screen/responses/',
+            {'answers': self.answer('Several days', 'More than half the days')}, format='json',
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual((response.data['total_score'], response.data['severity']), (3, 'Moderate'))
+        self.assertEqual([i['value'] for i in response.data['items']], [1, 2])
+
+        history = self.client.get('/api/assessments/mini-screen/responses/').data
+        self.assertEqual([r['total_score'] for r in history], [3])
+
+    def test_rejects_incomplete_or_invalid_submissions(self):
+        url = '/api/assessments/mini-screen/responses/'
+        self.assertEqual(self.client.post(url, {'answers': self.answer('Several days')}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'answers': self.answer('Several days', 'Always')}, format='json').status_code, 400)
+        self.assertEqual(AssessmentResponse.objects.count(), 0)
+
+    def test_daily_and_inactive_questionnaires_are_not_standalone(self):
+        self.assertEqual(self.client.get(f'/api/assessments/{Questionnaire.DAILY_KEY}/').status_code, 404)
+        Questionnaire.objects.filter(pk=self.screen.pk).update(is_active=False)
+        self.assertEqual(self.client.get('/api/assessments/mini-screen/').status_code, 404)
+
+    def test_checkin_answers_are_recorded_as_a_daily_response(self):
+        factors = AssessmentQuestion.objects.get(key='mood-factors')
+        response = self.client.post('/api/checkin/', {
+            'check_in_type': 'detailed', 'mood_rating': 6, 'anxiety_rating': 4, 'sleep_hours': 7, 'sleep_quality': 'good',
+            'answers': [{'question_id': str(factors.id), 'answer': ['Stress']}],
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        daily = AssessmentResponse.objects.get(questionnaire__is_daily=True)
+        self.assertEqual(daily.daily_report_id, DailyReport.objects.get().id)
+        self.assertEqual(list(daily.items.values_list('question_key', 'answer')), [('mood-factors', ['Stress'])])
+
+
+class AssessmentAdminTests(APITestCase):
+    def setUp(self):
+        call_command('setup_assessments', stdout=StringIO())
+        self.admin = get_user_model().objects.create_superuser(email='admin@example.com', password='pass12345')
+        self.client.force_login(self.admin)
+        self.question = AssessmentQuestion.objects.get(key='mood-factors')
+
+    def change(self, question, **overrides):
+        options = list(question.options.all())
+        data = {
+            'questionnaire': str(question.questionnaire_id), 'text': question.text, 'help_text': question.help_text,
+            'question_type': question.question_type, 'is_required': 'on', 'saves_as_tags': 'on',
+            'key': question.key, 'order': question.order, 'is_active': 'on',
+            'options-TOTAL_FORMS': len(options), 'options-INITIAL_FORMS': len(options),
+            'options-MIN_NUM_FORMS': 0, 'options-MAX_NUM_FORMS': 1000,
+        }
+        for i, option in enumerate(options):
+            data.update({
+                f'options-{i}-id': str(option.id), f'options-{i}-question': str(question.id),
+                f'options-{i}-label': option.label, f'options-{i}-value': '',
+                f'options-{i}-order': option.order, f'options-{i}-is_active': 'on',
+            })
+        data.update(overrides)
+        return self.client.post(f'/admin/others/assessmentquestion/{question.id}/change/', data)
+
+    def answer_once(self):
+        user = get_user_model().objects.create_user(email='a@example.com', password='pass12345')
+        report = DailyReport.objects.create(
+            user=user, mood_rating=5, anxiety_rating=5,
+            answers=[{'question_id': str(self.question.id), 'question': self.question.text, 'type': 'multiple_choice', 'answer': ['Sleep']}],
+        )
+        record_daily_response(report)
+
+    def test_rewording_an_answered_question_bumps_its_version_and_keeps_old_text(self):
+        self.answer_once()
+        response = self.change(self.question, text='What is affecting your mood right now?')
+
+        self.assertEqual(response.status_code, 302)
+        self.question.refresh_from_db()
+        self.assertEqual((self.question.text, self.question.version), ('What is affecting your mood right now?', 2))
+        self.assertEqual(AssessmentResponseItem.objects.get().question_text, 'What may be affecting your mood today?')
+
+    def test_editing_unanswered_or_cosmetic_fields_keeps_version(self):
+        self.change(self.question, text='Reworded before anyone answered')
+        self.question.refresh_from_db()
+        self.answer_once()
+        self.change(self.question, order=5)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.version, 1)
+
+    def test_answered_questions_cannot_be_deleted(self):
+        self.answer_once()
+        response = self.client.post(f'/admin/others/assessmentquestion/{self.question.id}/delete/', {'post': 'yes'})
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(AssessmentQuestion.objects.filter(pk=self.question.pk).exists())
+
+    def test_locked_questionnaire_questions_are_read_only(self):
+        Questionnaire.objects.filter(is_daily=True).update(is_locked=True)
+        response = self.change(self.question, text='Tampered')
+
+        self.assertEqual(response.status_code, 403)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.text, 'What may be affecting your mood today?')
+
+    def test_admin_pages_load(self):
+        self.answer_once()
+        for url in [
+            '/admin/others/questionnaire/',
+            f'/admin/others/questionnaire/{self.question.questionnaire_id}/change/',
+            '/admin/others/assessmentquestion/',
+            f'/admin/others/assessmentquestion/{self.question.id}/change/',
+            '/admin/others/assessmentresponse/',
+            f'/admin/others/assessmentresponse/{AssessmentResponse.objects.get().id}/change/',
+        ]:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)

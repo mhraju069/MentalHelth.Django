@@ -1,11 +1,15 @@
 from rest_framework import serializers
-from .models import AssessmentOption, AssessmentQuestion, DailyReport, Feedback, FCMDevice, Notification
+from .assessments import build_items, daily_questions, record_daily_response
+from .models import (
+    AssessmentOption, AssessmentQuestion, AssessmentResponse, AssessmentResponseItem,
+    DailyReport, Feedback, FCMDevice, Notification, Questionnaire,
+)
 
 
 class AssessmentOptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssessmentOption
-        fields = ('id', 'label')
+        fields = ('id', 'label', 'value')
 
 
 class AssessmentQuestionSerializer(serializers.ModelSerializer):
@@ -13,11 +17,81 @@ class AssessmentQuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AssessmentQuestion
-        fields = ('id', 'text', 'help_text', 'question_type', 'is_required', 'saves_as_tags', 'options')
+        fields = ('id', 'key', 'version', 'text', 'help_text', 'question_type', 'is_required', 'saves_as_tags', 'options')
 
     def get_options(self, obj):
         # Options are prefetched as active-only by the view.
         return AssessmentOptionSerializer(obj.options.all(), many=True).data
+
+
+class QuestionnaireSummarySerializer(serializers.ModelSerializer):
+    """A questionnaire in the list, with when the user last did it."""
+    last_completed_at = serializers.SerializerMethodField()
+    next_due_at = serializers.SerializerMethodField()
+    is_due = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Questionnaire
+        fields = ('key', 'name', 'description', 'frequency_days', 'last_completed_at', 'next_due_at', 'is_due')
+
+    def _last(self, obj):
+        # Set by the view: {questionnaire_id: latest created_at}.
+        return self.context.get('last_completed', {}).get(obj.id)
+
+    def get_last_completed_at(self, obj):
+        last = self._last(obj)
+        return last.isoformat() if last else None
+
+    def get_next_due_at(self, obj):
+        from datetime import timedelta
+        last = self._last(obj)
+        if not last or not obj.frequency_days:
+            return None
+        return (last + timedelta(days=obj.frequency_days)).isoformat()
+
+    def get_is_due(self, obj):
+        from datetime import timedelta
+        from django.utils import timezone
+        last = self._last(obj)
+        if not last:
+            return True
+        if not obj.frequency_days:
+            return False
+        return timezone.now() >= last + timedelta(days=obj.frequency_days)
+
+
+class QuestionnaireDetailSerializer(serializers.ModelSerializer):
+    questions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Questionnaire
+        fields = ('key', 'name', 'description', 'instructions', 'copyright_notice', 'scoring', 'questions')
+
+    def get_questions(self, obj):
+        # Prefetched as active-only by the view.
+        return AssessmentQuestionSerializer(obj.questions.all(), many=True).data
+
+
+class AssessmentResponseItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssessmentResponseItem
+        fields = ('question_key', 'question_version', 'question_text', 'question_type', 'answer', 'value')
+
+
+class AssessmentResponseSerializer(serializers.ModelSerializer):
+    questionnaire = serializers.SlugRelatedField(slug_field='key', read_only=True)
+    items = AssessmentResponseItemSerializer(many=True, read_only=True)
+    # Incoming: [{"question_id": "<uuid>", "answer": "label" | ["label", ...] | "text"}]
+    answers = serializers.ListField(child=serializers.DictField(), write_only=True)
+
+    class Meta:
+        model = AssessmentResponse
+        fields = ('id', 'questionnaire', 'total_score', 'severity', 'created_at', 'items', 'answers')
+        read_only_fields = ('id', 'total_score', 'severity', 'created_at')
+
+    def validate_answers(self, value):
+        questionnaire = self.context['questionnaire']
+        return build_items(list(questionnaire.questions.all()), value)
 
 
 class DailyReportSerializer(serializers.ModelSerializer):
@@ -31,32 +105,13 @@ class DailyReportSerializer(serializers.ModelSerializer):
         read_only_fields = ('user', 'created_at')
 
     def validate_answers(self, value):
-        questions = {
-            str(q.id): q
-            for q in AssessmentQuestion.objects.filter(is_active=True).prefetch_related('options')
-        }
-        by_question = {}
-        for item in value:
-            question_id = str(item.get('question_id', ''))
-            question = questions.get(question_id)
-            if question is None:
-                raise serializers.ValidationError('This question is no longer available. Please refresh and try again.')
-            by_question[question_id] = (question, item.get('answer'))
+        return build_items(list(daily_questions()), value)
 
-        snapshot = []
-        for question_id, question in questions.items():
-            question, answer = by_question.get(question_id, (question, None))
-            answer = self._clean_answer(question, answer)
-            if question.is_required and not answer:
-                raise serializers.ValidationError(f'Please answer: {question.text}')
-            if answer:
-                snapshot.append({
-                    'question_id': question_id,
-                    'question': question.text,
-                    'type': question.question_type,
-                    'answer': answer,
-                })
-        return snapshot
+    def create(self, validated_data):
+        report = super().create(validated_data)
+        # Also store the answers in the queryable responses table.
+        record_daily_response(report)
+        return report
 
     def _validate_ratings(self, attrs):
         if attrs.get('mood_rating') is None:
@@ -77,27 +132,6 @@ class DailyReportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'sleep_hours': 'Please enter how long you slept.'})
             if not attrs.get('sleep_quality'):
                 raise serializers.ValidationError({'sleep_quality': 'Please choose how well you slept.'})
-
-    def _clean_answer(self, question, answer):
-        if answer in (None, '', []):
-            return None
-
-        if question.question_type == AssessmentQuestion.TEXT:
-            if not isinstance(answer, str):
-                raise serializers.ValidationError(f'Invalid answer for: {question.text}')
-            return answer.strip()[:1000] or None
-
-        labels = answer if isinstance(answer, list) else [answer]
-        if not all(isinstance(label, str) for label in labels):
-            raise serializers.ValidationError(f'Invalid answer for: {question.text}')
-        allowed = {o.label for o in question.options.all() if o.is_active}
-        if any(label not in allowed for label in labels):
-            raise serializers.ValidationError(f'Invalid option for: {question.text}')
-        if question.question_type == AssessmentQuestion.SINGLE_CHOICE:
-            if len(labels) > 1:
-                raise serializers.ValidationError(f'Choose only one option for: {question.text}')
-            return labels[0]
-        return list(dict.fromkeys(labels))
 
     def validate(self, attrs):
         self._validate_ratings(attrs)
