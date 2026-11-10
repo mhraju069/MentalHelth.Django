@@ -226,6 +226,33 @@ class AnalyticsAccuracyTests(APITestCase):
         self.add(timezone.now(), mood_rating=7, anxiety_rating=3)
         self.assertEqual(self.client.get('/api/insights/').data['mood_trend'], '--')
 
+    def test_insights_include_anxiety_sleep_daily_and_factors(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        now = timezone.now()
+        # Stay inside the current month whatever day the test runs.
+        earlier = now - timedelta(days=1) if now.day > 1 else now
+        self.add(earlier, mood_rating=4, anxiety_rating=8, sleep_hours='5.5', tags=['Work/School', 'Stress'])
+        self.add(now, mood_rating=8, anxiety_rating=2, sleep_hours='8', tags=['Stress'])
+        self.add(now, assesment='good', tags=['Family'])  # legacy: no anxiety/sleep
+
+        data = self.client.get('/api/insights/').data
+
+        self.assertEqual((data['average_anxiety'], data['average_sleep']), (5.0, 6.8))
+        self.assertEqual(data['top_factors'][0], {'factor': 'Stress', 'count': 2})
+        self.assertEqual(len(data['top_factors']), 3)
+        self.assertEqual(data['daily'][-1]['date'], timezone.localdate().isoformat())
+        self.assertEqual(data['daily'][-1]['anxiety'], 2.0)
+        self.assertEqual(data['daily'][-1]['mood'], 8.0)  # (8 + legacy "good" 8) / 2
+
+    def test_insights_without_new_fields_return_none(self):
+        from django.utils import timezone
+
+        self.add(timezone.now(), assesment='sad')
+        data = self.client.get('/api/insights/').data
+        self.assertEqual((data['average_anxiety'], data['average_sleep'], data['top_factors']), (None, None, []))
+
 
 class SetupAssessmentsTests(APITestCase):
     def run_setup(self):

@@ -641,14 +641,51 @@ class getInsightsView(GetReportView):
     def get(self, request):
         reports = this_month_reports(request.user)
 
+        averages = reports.aggregate(
+            anxiety=models.Avg('anxiety_rating'), sleep=models.Avg('sleep_hours'),
+        )
         return Response({
             "entries": reports.count(),
             "average_mood": self.get_average_score(reports),
+            # None until there are check-ins with these fields.
+            "average_anxiety": round(averages['anxiety'], 1) if averages['anxiety'] is not None else None,
+            "average_sleep": round(float(averages['sleep']), 1) if averages['sleep'] is not None else None,
             "mood_trend": self.mood_trend(reports),
             "best_day": self.best_day(reports),
             "summary": self.get_top_emotions(reports),
+            "daily": self.daily(reports),
+            "top_factors": self.top_factors(reports),
         })
-        
+
+    def daily(self, reports):
+        """Per-day averages (user's timezone), oldest first, for the trend chart."""
+        from django.db.models.functions import TruncDate
+
+        rows = (
+            reports.annotate(day=TruncDate('created_at'))
+            .values('day')
+            .annotate(mood=models.Avg('score'), anxiety=models.Avg('anxiety_rating'), sleep=models.Avg('sleep_hours'))
+            .order_by('day')
+        )
+        return [
+            {
+                "date": row['day'].isoformat(),
+                "mood": round(row['mood'], 1) if row['mood'] is not None else None,
+                "anxiety": round(row['anxiety'], 1) if row['anxiety'] is not None else None,
+                "sleep": round(float(row['sleep']), 1) if row['sleep'] is not None else None,
+            }
+            for row in rows
+        ]
+
+    def top_factors(self, reports, limit=5):
+        """What users said was affecting their mood most often (check-in tags)."""
+        counts = {}
+        for tags in reports.values_list('tags', flat=True):
+            for tag in tags or []:
+                counts[tag] = counts.get(tag, 0) + 1
+        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+        return [{"factor": tag, "count": count} for tag, count in ranked]
+
     def get_average_score(self, reports):
             total_reports = reports.count()
             if total_reports == 0:
