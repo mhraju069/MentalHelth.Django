@@ -519,3 +519,28 @@ class AssessmentAdminTests(APITestCase):
         ]:
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
+
+
+class AccountDeletionTests(InstrumentMixin, APITestCase):
+    """App Store 5.1.1(v): deleting the account removes it and all its data."""
+
+    def test_delete_account_removes_user_and_all_their_data(self):
+        from .models import AIChatMessage, AIChatSession, Notification
+
+        DailyReport.objects.create(user=self.user, mood_rating=5, anxiety_rating=5, journal='private')
+        self.submit('phq-9', 'Several days')
+        session = AIChatSession.objects.create(user=self.user)
+        AIChatMessage.objects.create(session=session, role='user', content='hello')
+        Notification.objects.create(user=self.user, title='t', body='b')
+
+        response = self.client.delete('/api/auth/user/')
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(get_user_model().objects.filter(pk=self.user.pk).exists())
+        self.assertEqual(DailyReport.objects.count(), 0)
+        self.assertEqual(AssessmentResponse.objects.count(), 0)
+        self.assertEqual(AssessmentResponseItem.objects.count(), 0)
+        self.assertEqual(AIChatMessage.objects.count(), 0)
+        self.assertEqual(Notification.objects.count(), 0)
+        # Shared questionnaires stay for everyone else.
+        self.assertTrue(Questionnaire.objects.filter(key='phq-9').exists())
