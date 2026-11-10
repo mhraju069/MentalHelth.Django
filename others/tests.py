@@ -571,3 +571,62 @@ class AccountDeletionTests(InstrumentMixin, APITestCase):
         self.assertEqual(Notification.objects.count(), 0)
         # Shared questionnaires stay for everyone else.
         self.assertTrue(Questionnaire.objects.filter(key='phq-9').exists())
+
+
+class FeedbackTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(email='fb@example.com', password='pass12345')
+        self.client.force_authenticate(self.user)
+
+    def test_rating_must_be_1_to_5(self):
+        for stars in (0, 6, 5.5, 'x'):
+            with self.subTest(stars=stars):
+                self.assertEqual(self.client.post('/api/feedback/', {'stars': stars, 'feedback': 'hi'}, format='json').status_code, 400)
+
+    def test_comment_is_optional(self):
+        from .models import Feedback
+
+        response = self.client.post('/api/feedback/', {'stars': 4}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(Feedback.objects.get().stars, '4')
+
+
+class ReminderTimingTests(APITestCase):
+    def make_user(self, email, tz, at, notify=True):
+        from datetime import time
+        # Active = verified; unverified sign-ups get no reminders.
+        return get_user_model().objects.create_user(
+            email=email, password='pass12345', timezone=tz, checkin_time=at, notify=notify, is_active=True,
+        )
+
+    def test_reminders_follow_each_users_local_time(self):
+        from datetime import datetime, time, timezone as dt_timezone
+        from .tasks import users_due_for_reminder
+
+        ny = self.make_user('ny@example.com', 'America/New_York', time(21, 0))
+        tokyo = self.make_user('tokyo@example.com', 'Asia/Tokyo', time(11, 0))
+        self.make_user('off@example.com', 'America/New_York', time(21, 0), notify=False)
+        self.make_user('utc@example.com', 'UTC', time(21, 0))
+
+        # 02:00 UTC on Nov 5 = 21:00 Nov 4 in New York = 11:00 Nov 5 in Tokyo.
+        due = users_due_for_reminder(datetime(2026, 11, 5, 2, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(set(due), {ny.id, tokyo.id})
+
+    def test_no_reminder_after_checking_in_today(self):
+        from datetime import datetime, time, timezone as dt_timezone
+        from .tasks import users_due_for_reminder
+
+        user = self.make_user('done@example.com', 'America/New_York', time(21, 0))
+        now = datetime(2026, 11, 5, 2, 0, tzinfo=dt_timezone.utc)  # 21:00 Nov 4 NY
+        report = DailyReport.objects.create(user=user, mood_rating=6, anxiety_rating=3)
+        # Checked in at 08:00 New York time the same day.
+        DailyReport.objects.filter(pk=report.pk).update(created_at=datetime(2026, 11, 4, 13, 0, tzinfo=dt_timezone.utc))
+
+        self.assertEqual(users_due_for_reminder(now), [])
+
+    def test_bad_timezone_falls_back_to_utc(self):
+        from datetime import datetime, time, timezone as dt_timezone
+        from .tasks import users_due_for_reminder
+
+        user = self.make_user('bad@example.com', 'Not/AZone', time(2, 0))
+        self.assertEqual(users_due_for_reminder(datetime(2026, 11, 5, 2, 0, tzinfo=dt_timezone.utc)), [user.id])

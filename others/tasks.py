@@ -1,7 +1,10 @@
 import logging, random
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from celery import shared_task
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from .models import DailyReport
 from .utils import send_fcm_notification
 
 User = get_user_model()
@@ -23,23 +26,32 @@ def send_daily_reminders():
     Periodic task that runs every minute to check if any user needs a reminder.
     Reminders are sent if notify is True and checkin_time (hour/minute) matches the current time.
     """
-    now = timezone.now()
-    # If project is using UTC, and user provides local time, we should handle timezones.
-    # Currently sending based on the time stored, assuming it aligns with server time.
-    
-    current_hour = now.hour
-    current_minute = now.minute
-    
-    users = User.objects.filter(
-        notify=True,
-        checkin_time__hour=current_hour,
-        checkin_time__minute=current_minute
-    )
-    
-    if users.exists():
-        logger.info(f"Sending {users.count()} reminders for {current_hour:02}:{current_minute:02}")
-        for user in users:
-            send_single_reminder.delay(str(user.id))
+    for user_id in users_due_for_reminder(timezone.now()):
+        send_single_reminder.delay(str(user_id))
+
+
+def users_due_for_reminder(now):
+    """
+    Users whose reminder time is this minute in their own timezone and who
+    haven't checked in yet today (their local day).
+    """
+    due = []
+    users = User.objects.filter(notify=True, is_active=True).only('id', 'checkin_time', 'timezone')
+    for user in users.iterator():
+        try:
+            tz = ZoneInfo(user.timezone or 'UTC')
+        except (ZoneInfoNotFoundError, ValueError):
+            tz = ZoneInfo('UTC')
+        local_now = now.astimezone(tz)
+        if (local_now.hour, local_now.minute) != (user.checkin_time.hour, user.checkin_time.minute):
+            continue
+        day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if DailyReport.objects.filter(user_id=user.id, created_at__gte=day_start).exists():
+            continue
+        due.append(user.id)
+    if due:
+        logger.info(f"Sending {len(due)} check-in reminder(s)")
+    return due
 
 @shared_task
 def send_single_reminder(user_id):

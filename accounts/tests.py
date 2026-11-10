@@ -134,3 +134,35 @@ class SocialSignInNameTests(TestCase):
 
         self.sign_in(name='Jane Appleseed')
         self.assertEqual(get_user_model().objects.get(email='apple@example.com').name, 'Jane (edited in app)')
+
+
+class ProfileFlagsTests(TestCase):
+    def setUp(self):
+        from rest_framework.test import APIClient
+        self.client = APIClient()
+
+    def test_has_password_is_false_for_social_accounts(self):
+        email_user = get_user_model().objects.create_user(email='pw@example.com', password='pass12345')
+        # As FirebaseLoginView creates them.
+        social = get_user_model().objects.create_user(email='social@example.com', uid='firebase-uid-1')
+
+        for user, expected in ((email_user, True), (social, False)):
+            self.client.force_authenticate(user)
+            self.assertEqual(self.client.get('/api/auth/user/').data['has_password'], expected)
+
+    def test_profile_request_saves_the_phone_timezone(self):
+        user = get_user_model().objects.create_user(email='tz@example.com', password='pass12345')
+        self.client.force_authenticate(user)
+
+        self.client.get('/api/auth/user/', HTTP_X_TIMEZONE='America/New_York')
+        user.refresh_from_db()
+        self.assertEqual(user.timezone, 'America/New_York')
+
+        self.client.get('/api/auth/user/')  # no header: leave it alone
+        user.refresh_from_db()
+        self.assertEqual(user.timezone, 'America/New_York')
+
+        # Clients can't set it directly.
+        self.client.patch('/api/auth/user/', {'timezone': 'Asia/Tokyo'}, format='json')
+        user.refresh_from_db()
+        self.assertEqual(user.timezone, 'America/New_York')

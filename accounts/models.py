@@ -52,6 +52,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     notify = models.BooleanField(default=True,verbose_name="Notify Me")
     policy = models.BooleanField(default=False,verbose_name="Policy Accepted")
     checkin_time = models.TimeField(default=time(9, 0), verbose_name="Daily Check-in Time")
+    # IANA name from the app (e.g. "America/New_York"); checkin_time is in
+    # this timezone, so reminders arrive at the user's local time.
+    timezone = models.CharField(max_length=64, default="UTC", verbose_name="Time Zone")
 
     objects = UserManager()
     class Meta:

@@ -61,12 +61,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     streak = serializers.SerializerMethodField()
     total_checkin = serializers.SerializerMethodField()
+    # Google/Apple accounts have no password, so there's nothing to change.
+    has_password = serializers.SerializerMethodField()
     old_password = serializers.CharField(write_only=True, required=False)
     
     class Meta:
         model = User
         exclude = ['block', 'is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions', 'date_joined']
-        read_only_fields = ['id', 'email', 'role']
+        read_only_fields = ['id', 'email', 'role', 'timezone']
         extra_kwargs = {'password': {'write_only': True}}
 
     def update(self, instance, validated_data):
@@ -90,6 +92,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     def get_streak(self, obj):
         return calculate_streak(obj)
+
+    def get_has_password(self, obj):
+        # Only Google/Apple sign-in sets the Firebase uid, and those accounts
+        # never get a password the user knows. (has_usable_password() can't
+        # tell: User.save() hashes Django's "no password" marker too.)
+        return not obj.uid
 
     def get_total_checkin(self, obj):
         return obj.checkins.count()

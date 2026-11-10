@@ -5,6 +5,7 @@ from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from rest_framework import generics, status,permissions
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -53,8 +54,16 @@ class SignInView(generics.CreateAPIView):
 class UserRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = UserProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
+
     def get_object(self):
-        return self.request.user
+        user = self.request.user
+        # The app loads the profile on every launch; keep the user's timezone
+        # current (it moves with them) so reminders arrive at local time.
+        tz = timezone.get_current_timezone_name()
+        if self.request.headers.get('X-Timezone') and tz != user.timezone:
+            user.timezone = tz
+            user.save(update_fields=['timezone'])
+        return user
 
 
 class GetOtpView(APIView):

@@ -171,3 +171,11 @@ class FeedbackSerializer(serializers.ModelSerializer):
         model = Feedback
         exclude = ('created_at', 'updated_at')
         read_only_fields = ('user',)
+        # The rating is what matters; the comment is optional.
+        extra_kwargs = {'feedback': {'required': False, 'allow_blank': True}}
+
+    def validate_stars(self, value):
+        # Stored as text; only whole ratings from 1 to 5 are valid.
+        if str(value).strip() not in {'1', '2', '3', '4', '5'}:
+            raise serializers.ValidationError('Choose a rating from 1 to 5 stars.')
+        return str(value).strip()
