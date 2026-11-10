@@ -184,6 +184,11 @@ class FirebaseLoginView(APIView):
                     'password': make_password(None),
                 },
             )
+            # Apple only shares the name once, and may not on the sign-in that
+            # created the account; fill it in whenever we first see it.
+            if not created and name and not (user.name or '').strip():
+                user.name = name
+                user.save(update_fields=['name'])
             if created and profile_image_url:
                 img_response = requests.get(profile_image_url)
                 if img_response.status_code == 200:

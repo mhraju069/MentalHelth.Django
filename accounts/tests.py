@@ -103,3 +103,34 @@ class OtpEmailTests(TestCase):
         self.assertIn('Reset your password', html)
         self.assertIn('expires in 3 minutes', html)
         self.assertIn(code, html)
+
+
+class SocialSignInNameTests(TestCase):
+    """Google puts the name in the Firebase token; Apple only once, via the app."""
+
+    def sign_in(self, **claims):
+        token = {'uid': 'uid-1', 'email': 'apple@example.com', **claims}
+        with patch('accounts.views.firebase_auth.verify_id_token', return_value=token):
+            return self.client.post('/api/auth/?token=abc')
+
+    def test_new_account_gets_the_name_from_the_token(self):
+        response = self.sign_in(name='Jane Appleseed')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(get_user_model().objects.get(email='apple@example.com').name, 'Jane Appleseed')
+
+    def test_missing_name_is_filled_in_on_a_later_sign_in(self):
+        self.sign_in()  # Apple first sign-in where the name didn't arrive
+        self.assertFalse(get_user_model().objects.get(email='apple@example.com').name)
+
+        self.sign_in(name='Jane Appleseed')
+        self.assertEqual(get_user_model().objects.get(email='apple@example.com').name, 'Jane Appleseed')
+
+    def test_existing_name_is_never_overwritten(self):
+        self.sign_in(name='Jane Appleseed')
+        user = get_user_model().objects.get(email='apple@example.com')
+        user.name = 'Jane (edited in app)'
+        user.save()
+
+        self.sign_in(name='Jane Appleseed')
+        self.assertEqual(get_user_model().objects.get(email='apple@example.com').name, 'Jane (edited in app)')
