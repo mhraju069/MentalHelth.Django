@@ -204,6 +204,8 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 CONTACT_EMAIL = os.getenv("CONTACT_EMAIL")
+# Public address of this API, for links in emails (e.g. the logo).
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://api.thehoneysucklecompany.com")
 
 
 # Celery Settings

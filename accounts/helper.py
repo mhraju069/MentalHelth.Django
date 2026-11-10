@@ -48,7 +48,8 @@ def send_otp(email, task="verification"):
             f"It expires in {OTP_EXPIRES_MINUTES} minutes.\n\n"
             "If you didn't request this, you can ignore this email."
         )
-        # Hosted logo (Backblaze); falls back to an inline attachment.
+        # Logo served from our API (the file lives in Backblaze); falls back
+        # to an inline attachment when the site URL isn't configured.
         logo_url = email_logo_url()
         html_content = render_to_string('email.html', {
             'otp': otp_obj.otp,

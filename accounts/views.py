@@ -220,3 +220,17 @@ class FirebaseLoginView(APIView):
         else:
             return Response({'status': False,'log': 'Invalid or expired token'}, status=status.HTTP_400_BAD_REQUEST)
 
+
+
+def email_logo(request):
+    """
+    GET /api/auth/email-logo.png: the logo used in emails. Public on purpose
+    (mail apps fetch it without signing in); the file itself stays in the
+    private Backblaze bucket.
+    """
+    from django.http import HttpResponse
+    from .email_branding import email_logo_bytes
+
+    response = HttpResponse(email_logo_bytes(), content_type='image/png')
+    response['Cache-Control'] = 'public, max-age=86400'
+    return response

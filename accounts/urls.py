@@ -10,5 +10,6 @@ urlpatterns = [
     path('get-otp/', GetOtpView.as_view(), name='get_otp'),
     path('reset-password/', ResetPassword.as_view(), name='reset_password'),
     path('profile/', GetProfileView.as_view(), name='get_profile'),
+    path('email-logo.png', email_logo, name='email_logo'),
     path('', FirebaseLoginView.as_view(), name='firebase_login'),
 ]

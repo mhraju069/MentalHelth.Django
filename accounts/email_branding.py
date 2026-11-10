@@ -1,7 +1,8 @@
 """
-The logo shown in emails, hosted in the configured Backblaze B2 bucket so
-mail apps load it from a plain public URL (inline attachments are often
-blocked or shown as files).
+The logo shown in emails. The file lives in the (private) Backblaze B2
+bucket; emails link to our own permanent URL, which serves it from there.
+Signed B2 links can't be used in emails: they expire (7 days at most) and
+people open emails later.
 """
 import logging
 
@@ -11,11 +12,11 @@ from django.core.files import File
 logger = logging.getLogger(__name__)
 
 LOGO_SOURCE = settings.BASE_DIR / 'static' / 'email-logo.png'
-# Versioned name: upload a new logo under a new name so cached copies in
-# old emails and mail-provider image proxies don't go stale.
+# Versioned name: upload a new logo under a new name.
 LOGO_NAME = 'branding/email-logo-v1.png'
+LOGO_PATH = '/api/auth/email-logo.png'
 
-_logo_url = None
+_logo_bytes = None
 
 
 def _uses_backblaze():
@@ -23,25 +24,35 @@ def _uses_backblaze():
 
 
 def email_logo_url():
-    """
-    Public URL of the email logo in Backblaze, uploading it the first time.
-    None when Backblaze isn't configured or isn't reachable; callers then
-    attach the logo to the email instead.
-    """
-    global _logo_url
-    if _logo_url or not _uses_backblaze():
-        return _logo_url
+    """Permanent public URL of the email logo, or None if the site URL isn't configured."""
+    base = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').rstrip('/')
+    return f'{base}{LOGO_PATH}' if base else None
 
-    from core.storage_backends import PublicMediaStorage
 
-    # Unsigned URL: signed ones expire, and emails are opened days later.
-    storage = PublicMediaStorage(querystring_auth=False)
-    try:
-        if not storage.exists(LOGO_NAME):
-            with open(LOGO_SOURCE, 'rb') as f:
-                storage.save(LOGO_NAME, File(f))
-        _logo_url = storage.url(LOGO_NAME)
-    except Exception:
-        # Not cached, so the next email tries again.
-        logger.exception('Could not upload the email logo to Backblaze')
-    return _logo_url
+def email_logo_bytes():
+    """
+    The logo image. Read from Backblaze once per process (uploading it the
+    first time); the bundled file is used if Backblaze isn't configured or
+    can't be reached.
+    """
+    global _logo_bytes
+    if _logo_bytes:
+        return _logo_bytes
+
+    if _uses_backblaze():
+        from core.storage_backends import PublicMediaStorage
+
+        storage = PublicMediaStorage()
+        try:
+            if not storage.exists(LOGO_NAME):
+                with open(LOGO_SOURCE, 'rb') as f:
+                    storage.save(LOGO_NAME, File(f))
+            with storage.open(LOGO_NAME, 'rb') as f:
+                _logo_bytes = f.read()
+            return _logo_bytes
+        except Exception:
+            # Not cached, so the next request tries Backblaze again.
+            logger.exception('Could not load the email logo from Backblaze')
+
+    with open(LOGO_SOURCE, 'rb') as f:
+        return f.read()
