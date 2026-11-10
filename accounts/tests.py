@@ -166,3 +166,48 @@ class ProfileFlagsTests(TestCase):
         self.client.patch('/api/auth/user/', {'timezone': 'Asia/Tokyo'}, format='json')
         user.refresh_from_db()
         self.assertEqual(user.timezone, 'America/New_York')
+
+
+class PasswordRulesTests(TestCase):
+    def setUp(self):
+        from rest_framework.test import APIClient
+        self.client = APIClient()
+
+    def signup(self, password):
+        return self.client.post('/api/auth/signup/', {
+            'email': 'new@example.com', 'name': 'New Person', 'password': password, 'confirm_password': password,
+        }, format='json')
+
+    def test_signup_rejects_short_or_common_passwords(self):
+        for password in ('short1', 'password123', '12345678'):
+            with self.subTest(password=password):
+                response = self.signup(password)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('password', response.data)
+        self.assertFalse(get_user_model().objects.filter(email='new@example.com').exists())
+
+    def test_signup_accepts_a_reasonable_password(self):
+        self.assertEqual(self.signup('quiet-river-42').status_code, 201)
+
+    def test_change_password_enforces_the_rules(self):
+        user = get_user_model().objects.create_user(email='c@example.com', password='original-pass-9', is_active=True)
+        self.client.force_authenticate(user)
+
+        weak = self.client.patch('/api/auth/user/', {'old_password': 'original-pass-9', 'password': 'abc'}, format='json')
+        self.assertEqual(weak.status_code, 400)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('original-pass-9'))
+
+        ok = self.client.patch('/api/auth/user/', {'old_password': 'original-pass-9', 'password': 'new-garden-path-7'}, format='json')
+        self.assertEqual(ok.status_code, 200, ok.data)
+
+    def test_password_reset_enforces_the_rules(self):
+        user = get_user_model().objects.create_user(email='r@example.com', password='original-pass-9', is_active=True)
+        self.client.force_authenticate(user)
+
+        weak = self.client.post('/api/auth/reset-password/', {'email': 'r@example.com', 'new_password': 'abc'}, format='json')
+        self.assertEqual(weak.status_code, 400)
+        ok = self.client.post('/api/auth/reset-password/', {'email': 'r@example.com', 'new_password': 'new-garden-path-7'}, format='json')
+        self.assertEqual(ok.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('new-garden-path-7'))

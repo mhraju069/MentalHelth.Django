@@ -139,6 +139,12 @@ class ResetPassword(APIView):
         
         try:
             user = User.objects.get(email=email)
+            from django.contrib.auth.password_validation import validate_password
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                validate_password(new_password, user)
+            except DjangoValidationError as e:
+                return Response({"status": False, "message": " ".join(e.messages)}, status=400)
             user.set_password(new_password)
             user.save()
             return Response({"status": True, "log": "Password reset successfully"}, status=200)

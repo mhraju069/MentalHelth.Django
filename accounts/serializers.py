@@ -3,6 +3,20 @@ from rest_framework import serializers
 from others.utils import calculate_streak
 
 
+def check_password_strength(password, user=None):
+    """
+    Run AUTH_PASSWORD_VALIDATORS (at least 8 characters, not too common, not
+    all numbers, not too close to the email/name) and report failures as a
+    normal "password" field error.
+    """
+    from django.contrib.auth.password_validation import validate_password
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    try:
+        validate_password(password, user)
+    except DjangoValidationError as e:
+        raise serializers.ValidationError({'password': list(e.messages)})
+
+
 class SignUpSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(write_only=True)
     
@@ -16,6 +30,7 @@ class SignUpSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if attrs['password'] != attrs['confirm_password']:
             raise serializers.ValidationError("Password fields do not match.")
+        check_password_strength(attrs['password'], User(email=attrs.get('email', ''), name=attrs.get('name', '')))
         return attrs
 
     def create(self, validated_data):
@@ -85,6 +100,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"old_password": "Old password is required to set a new one."})
             if not instance.check_password(old_password):
                 raise serializers.ValidationError({"old_password": "Old password does not match."})
+            check_password_strength(password, instance)
             instance.set_password(password)
 
         instance.save()
