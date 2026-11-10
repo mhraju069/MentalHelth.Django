@@ -1,5 +1,6 @@
 from django.utils import timezone
 from datetime import timedelta
+from .email_branding import LOGO_SOURCE, email_logo_url
 from .models import OTP, User
 from django.template.loader import render_to_string
 from django.conf import settings
@@ -17,15 +18,45 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 
+OTP_EXPIRES_MINUTES = 3  # matches OTP.is_expired
+
+
+def _otp_copy(task):
+    """(subject, heading, intro) for the kind of code being sent."""
+    if 'reset' in (task or '').lower() or 'forgot' in (task or '').lower():
+        return (
+            'Reset your Honeysuckle Trail password',
+            'Reset your password',
+            'Use this code to reset your password.',
+        )
+    return (
+        'Your Honeysuckle Trail verification code',
+        'Verify your email',
+        'Use this code to finish signing in to Honeysuckle Trail.',
+    )
+
+
 def send_otp(email, task="verification"):
     try:
         user = User.objects.get(email=email)
         otp_obj = OTP.generate_otp(user)
 
-        subject = "Your OTP code for Honey Suckle Trail"
+        subject, heading, intro = _otp_copy(task)
         email_from = settings.EMAIL_HOST_USER
-        plain_text = f"Your OTP code is {otp_obj.otp}. It will expire in 3 minutes."
-        html_content = render_to_string('email.html', {'otp': otp_obj.otp, 'task': task})
+        plain_text = (
+            f"{heading}\n\n{intro}\n\nYour code: {otp_obj.otp}\n"
+            f"It expires in {OTP_EXPIRES_MINUTES} minutes.\n\n"
+            "If you didn't request this, you can ignore this email."
+        )
+        # Hosted logo (Backblaze); falls back to an inline attachment.
+        logo_url = email_logo_url()
+        html_content = render_to_string('email.html', {
+            'otp': otp_obj.otp,
+            'heading': heading,
+            'intro': intro,
+            'expires_minutes': OTP_EXPIRES_MINUTES,
+            'logo_src': logo_url or 'cid:logo',
+        })
 
         # Build multipart/related to support inline images
         msg_root = MIMEMultipart('related')
@@ -39,10 +70,9 @@ def send_otp(email, task="verification"):
         msg_alternative.attach(MIMEText(plain_text, 'plain'))
         msg_alternative.attach(MIMEText(html_content, 'html'))
 
-        # Attach logo inline with CID so the template can reference it via cid:logo
-        logo_path = os.path.join(settings.MEDIA_ROOT, 'logo.png')
-        if os.path.exists(logo_path):
-            with open(logo_path, 'rb') as f:
+        # No hosted logo: attach it inline so the template's cid:logo resolves.
+        if not logo_url and os.path.exists(LOGO_SOURCE):
+            with open(LOGO_SOURCE, 'rb') as f:
                 img = MIMEImage(f.read())
                 img.add_header('Content-ID', '<logo>')
                 img.add_header('Content-Disposition', 'inline', filename='logo.png')
