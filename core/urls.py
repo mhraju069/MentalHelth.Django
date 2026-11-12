@@ -8,7 +8,10 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
+from others.dashboard import sync_openai_now
+
 urlpatterns = [
+    path('admin/openai/sync/', sync_openai_now, name='openai_sync_now'),
     path('admin/', admin.site.urls),
     path('', RedirectView.as_view(url='/admin/', permanent=False)),
     path('api/auth/', include('accounts.urls')),

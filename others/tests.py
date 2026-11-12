@@ -630,3 +630,133 @@ class ReminderTimingTests(APITestCase):
 
         user = self.make_user('bad@example.com', 'Not/AZone', time(2, 0))
         self.assertEqual(users_due_for_reminder(datetime(2026, 11, 5, 2, 0, tzinfo=dt_timezone.utc)), [user.id])
+
+
+# ─── OpenAI credits & usage ──────────────────────────────────────────────────
+
+from datetime import date, datetime, timedelta, timezone as dt_tz
+from decimal import Decimal
+from unittest import mock
+
+from django.core import mail
+from django.test import override_settings
+from django.utils import timezone
+
+from . import openai_billing
+from .models import OpenAIBillingSettings, OpenAICredit, OpenAIDailyUsage
+
+
+def _ts(d):
+    return int(datetime(d.year, d.month, d.day, tzinfo=dt_tz.utc).timestamp())
+
+
+class FakeResponse:
+    def __init__(self, body, status_code=200):
+        self._body, self.status_code, self.text = body, status_code, str(body)
+
+    def json(self):
+        return self._body
+
+
+@override_settings(OPENAI_ADMIN_KEY='sk-admin-test', CONTACT_EMAIL='hello@example.com',
+                   OPENAI_ALERT_EMAILS='dev@example.com', EMAIL_HOST_USER='app@example.com')
+class OpenAIBillingTests(APITestCase):
+    today = date(2026, 11, 12)
+
+    def fake_get(self, url, headers=None, params=None, timeout=None):
+        assert headers['Authorization'] == 'Bearer sk-admin-test'
+        d1, d2 = self.today - timedelta(days=1), self.today
+        if url.endswith('/costs'):
+            if params.get('page') is None:
+                return FakeResponse({'data': [{'start_time': _ts(d1), 'results': [
+                    {'amount': {'value': 1.25, 'currency': 'usd'}},
+                    {'amount': {'value': 0.25, 'currency': 'usd'}},
+                ]}], 'has_more': True, 'next_page': 'p2'})
+            return FakeResponse({'data': [{'start_time': _ts(d2), 'results': [
+                {'amount': {'value': 0.5, 'currency': 'usd'}}]}], 'has_more': False})
+        return FakeResponse({'data': [{'start_time': _ts(d1), 'results': [
+            {'input_tokens': 1000, 'output_tokens': 200, 'num_model_requests': 7}]}], 'has_more': False})
+
+    def test_sync_stores_daily_cost_and_tokens_across_pages(self):
+        with mock.patch('others.openai_billing.requests.get', side_effect=self.fake_get):
+            openai_billing.sync_usage(self.today)
+        y = OpenAIDailyUsage.objects.get(date=self.today - timedelta(days=1))
+        self.assertEqual(y.cost_usd, Decimal('1.5'))
+        self.assertEqual((y.input_tokens, y.output_tokens, y.requests), (1000, 200, 7))
+        self.assertEqual(OpenAIDailyUsage.objects.get(date=self.today).cost_usd, Decimal('0.5'))
+
+    def test_sync_error_is_recorded_and_no_alert(self):
+        OpenAICredit.objects.create(amount=1, added_on=self.today - timedelta(days=5))
+        with mock.patch('others.openai_billing.requests.get',
+                        return_value=FakeResponse({'error': {'message': 'bad key'}}, 401)):
+            openai_billing.sync_and_check()
+        self.assertIn('bad key', OpenAIBillingSettings.load().last_sync_error)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_balance_is_credits_minus_costs_after_first_entry(self):
+        OpenAICredit.objects.create(amount=20, added_on=self.today - timedelta(days=10))
+        OpenAICredit.objects.create(amount=10, added_on=self.today - timedelta(days=2))
+        OpenAIDailyUsage.objects.create(date=self.today - timedelta(days=10), cost_usd=5)  # before: ignored
+        OpenAIDailyUsage.objects.create(date=self.today - timedelta(days=3), cost_usd=7)
+        OpenAIDailyUsage.objects.create(date=self.today - timedelta(days=1), cost_usd=7)
+        s = openai_billing.balance_summary(self.today)
+        self.assertEqual(s['balance'], Decimal('16'))
+        self.assertEqual(s['per_day'], Decimal('2'))
+        self.assertEqual(s['days_left'], 8)
+
+    def test_low_balance_alert_goes_to_both_addresses_once_a_day(self):
+        OpenAICredit.objects.create(amount=10, added_on=self.today - timedelta(days=5))
+        OpenAIDailyUsage.objects.create(date=self.today - timedelta(days=1), cost_usd=6)
+        now = timezone.now()
+        self.assertTrue(openai_billing.check_balance_and_alert(now))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['hello@example.com', 'dev@example.com'])
+        self.assertIn('running low', mail.outbox[0].subject)
+        self.assertIn('$4.00', mail.outbox[0].body)
+        # Not repeated within a day...
+        self.assertFalse(openai_billing.check_balance_and_alert(now + timedelta(hours=2)))
+        # ...but repeated after a day while still low.
+        self.assertTrue(openai_billing.check_balance_and_alert(now + timedelta(hours=25)))
+
+    def test_topping_up_rearms_the_alert(self):
+        OpenAICredit.objects.create(amount=10, added_on=self.today - timedelta(days=5))
+        OpenAIDailyUsage.objects.create(date=self.today - timedelta(days=1), cost_usd=6)
+        now = timezone.now()
+        openai_billing.check_balance_and_alert(now)
+        OpenAICredit.objects.create(amount=100, added_on=self.today)
+        self.assertFalse(openai_billing.check_balance_and_alert(now + timedelta(minutes=5)))
+        self.assertIsNone(OpenAIBillingSettings.load().low_alert_sent_at)
+
+    def test_no_alert_without_recorded_credit(self):
+        self.assertFalse(openai_billing.check_balance_and_alert())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_out_of_credit_alert_is_rate_limited(self):
+        now = timezone.now()
+        self.assertTrue(openai_billing.report_out_of_credit(now))
+        self.assertFalse(openai_billing.report_out_of_credit(now + timedelta(hours=1)))
+        self.assertIn('run out', mail.outbox[0].subject)
+
+    def test_chat_insufficient_quota_reports_and_says_unavailable(self):
+        from .views import AIChatSendMessageView
+        body = {'error': {'code': 'insufficient_quota', 'type': 'insufficient_quota', 'message': 'quota'}}
+        with override_settings(OPENAI_API_KEY='sk-test'), \
+                mock.patch('others.views.requests.post', return_value=FakeResponse(body, 429)), \
+                mock.patch('others.tasks.report_openai_out_of_credit.delay') as delay:
+            reply, error = AIChatSendMessageView._call_openai([{'role': 'user', 'content': 'hi'}])
+        self.assertIsNone(reply)
+        self.assertEqual(error.status_code, 503)
+        delay.assert_called_once()
+
+    def test_dashboard_shows_balance_for_superuser(self):
+        admin_user = get_user_model().objects.create_superuser(email='boss@example.com', password='Pass-1234')
+        self.client.force_login(admin_user)
+        OpenAICredit.objects.create(amount=25, added_on=timezone.now().date() - timedelta(days=3))
+        OpenAIDailyUsage.objects.create(date=timezone.now().date() - timedelta(days=1), cost_usd=Decimal('2.5'),
+                                        input_tokens=1200, output_tokens=300, requests=4)
+        res = self.client.get('/admin/')
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'OpenAI credits &amp; usage')
+        self.assertContains(res, '$22.50')
+        self.assertContains(res, 'data-type="bar"')
+        self.assertContains(res, 'data-type="line"')

@@ -197,3 +197,55 @@ class NotificationAdmin(ModelAdmin):
     list_display = ('user', 'title', 'is_read', 'created_at')
     list_filter = ('is_read', 'created_at')
     search_fields = ('user__email', 'title', 'body')
+
+
+# ─── OpenAI credits & usage ──────────────────────────────────────────────────
+
+@admin.register(OpenAICredit)
+class OpenAICreditAdmin(ModelAdmin):
+    list_display = ('added_on', 'amount', 'note', 'created_at')
+    fields = ('amount', 'added_on', 'note')
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+
+@admin.register(OpenAIDailyUsage)
+class OpenAIDailyUsageAdmin(ModelAdmin):
+    list_display = ('date', 'cost_usd', 'requests', 'input_tokens', 'output_tokens', 'updated_at')
+    date_hierarchy = 'date'
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    # Synced from OpenAI; not edited by hand.
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OpenAIBillingSettings)
+class OpenAIBillingSettingsAdmin(ModelAdmin):
+    fields = ('low_balance_threshold', 'alert_emails', 'last_synced_at', 'last_sync_error',
+              'low_alert_sent_at', 'out_of_credit_alert_sent_at')
+    readonly_fields = ('last_synced_at', 'last_sync_error', 'low_alert_sent_at', 'out_of_credit_alert_sent_at')
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        # Single settings row: go straight to it.
+        from django.shortcuts import redirect
+        obj = OpenAIBillingSettings.load()
+        return redirect('admin:others_openaibillingsettings_change', obj.pk)

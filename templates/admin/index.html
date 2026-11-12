@@ -1,0 +1,116 @@
+{% extends 'admin/base.html' %}
+
+{% load i18n unfold %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+    {% if openai %}
+        <div class="flex flex-col gap-4 mb-8">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h2 class="font-semibold text-important text-lg">OpenAI credits &amp; usage</h2>
+                    <p class="text-subtle text-sm">
+                        {% if openai.last_synced_at %}Updated {{ openai.last_synced_at|timesince }} ago from OpenAI.{% else %}Not synced with OpenAI yet.{% endif %}
+                        Balance is an estimate: OpenAI has no balance API, so it is the credit you recorded minus OpenAI's reported costs.
+                    </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{% url 'admin:others_openaicredit_add' %}" class="border border-base-200 font-medium px-3 py-2 rounded-default text-sm dark:border-base-700">Record credit</a>
+                    <form method="post" action="{% url 'openai_sync_now' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="bg-primary-600 font-medium px-3 py-2 rounded-default text-sm text-white">Refresh now</button>
+                    </form>
+                </div>
+            </div>
+
+            {% if not openai.has_admin_key %}
+                <div class="bg-red-50 p-4 rounded-default text-red-700 text-sm dark:bg-red-500/20 dark:text-red-400">
+                    Usage can't be pulled from OpenAI yet: set <strong>OPENAI_ADMIN_KEY</strong> on the server (an Admin key from platform.openai.com → Settings → Admin keys), then restart web, celery_worker and celery_beat.
+                </div>
+            {% elif openai.last_sync_error %}
+                <div class="bg-red-50 p-4 rounded-default text-red-700 text-sm dark:bg-red-500/20 dark:text-red-400">
+                    Last sync failed: {{ openai.last_sync_error }}
+                </div>
+            {% endif %}
+
+            {% if openai.status == "empty" %}
+                <div class="bg-red-50 p-4 rounded-default text-red-700 text-sm dark:bg-red-500/20 dark:text-red-400">
+                    <strong>OpenAI credit is used up.</strong> The AI chat stops working when the balance reaches $0. <a class="underline" href="{{ openai.billing_url }}" target="_blank" rel="noopener">Add credit on OpenAI</a>, then record it here.
+                </div>
+            {% elif openai.status == "low" %}
+                <div class="bg-red-50 p-4 rounded-default text-red-700 text-sm dark:bg-red-500/20 dark:text-red-400">
+                    <strong>OpenAI credit is running low.</strong> <a class="underline" href="{{ openai.billing_url }}" target="_blank" rel="noopener">Add credit on OpenAI</a>, then record it here.
+                </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {% component "unfold/components/card.html" with size="md" %}
+                    <p class="text-subtle text-sm">Estimated balance</p>
+                    {% if openai.summary %}
+                        <p class="font-semibold mt-1 text-2xl {% if openai.status == 'ok' %}text-important{% else %}text-red-600 dark:text-red-400{% endif %}">${{ openai.summary.balance|floatformat:2 }}</p>
+                        {% if openai.percent_left is not None %}
+                            <div class="mt-2">
+                                {% component "unfold/components/progress.html" with value=openai.percent_left %}{% endcomponent %}
+                            </div>
+                        {% endif %}
+                        <p class="mt-2 text-subtle text-xs">${{ openai.summary.credits|floatformat:2 }} added since {{ openai.summary.since|date:"M j, Y" }}</p>
+                    {% else %}
+                        <p class="font-semibold mt-1 text-2xl text-important">—</p>
+                        <p class="mt-2 text-subtle text-xs"><a class="underline" href="{% url 'admin:others_openaicredit_add' %}">Record your current OpenAI balance</a> to start tracking.</p>
+                    {% endif %}
+                {% endcomponent %}
+
+                {% component "unfold/components/card.html" with size="md" %}
+                    <p class="text-subtle text-sm">Runs out in</p>
+                    <p class="font-semibold mt-1 text-2xl text-important">
+                        {% if openai.summary.days_left is not None %}~{{ openai.summary.days_left }} day{{ openai.summary.days_left|pluralize }}{% else %}—{% endif %}
+                    </p>
+                    <p class="mt-2 text-subtle text-xs">
+                        {% if openai.summary %}${{ openai.summary.per_day|floatformat:2 }} a day (last 7 days){% else %}Needs a recorded balance{% endif %}
+                    </p>
+                {% endcomponent %}
+
+                {% component "unfold/components/card.html" with size="md" %}
+                    <p class="text-subtle text-sm">Spent this month</p>
+                    <p class="font-semibold mt-1 text-2xl text-important">${{ openai.month_cost|floatformat:2 }}</p>
+                    <p class="mt-2 text-subtle text-xs">{{ openai.month_requests }} AI request{{ openai.month_requests|pluralize }}</p>
+                {% endcomponent %}
+
+                {% component "unfold/components/card.html" with size="md" %}
+                    <p class="text-subtle text-sm">Tokens this month</p>
+                    <p class="font-semibold mt-1 text-2xl text-important">{{ openai.month_tokens_display }}</p>
+                    <p class="mt-2 text-subtle text-xs">Warning at ${{ openai.threshold|floatformat:2 }} or 7 days left · <a class="underline" href="{% url 'admin:others_openaibillingsettings_changelist' %}">settings</a></p>
+                {% endcomponent %}
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {% component "unfold/components/card.html" with title="Daily spend (USD), last 30 days" description="All OpenAI usage on the organization, UTC days" %}
+                    {% if openai.has_usage %}
+                        {% component "unfold/components/chart/bar.html" with data=openai.cost_chart height=260 %}{% endcomponent %}
+                    {% else %}
+                        <p class="text-subtle text-sm">No usage data yet.</p>
+                    {% endif %}
+                {% endcomponent %}
+
+                {% component "unfold/components/card.html" with title="Daily tokens, last 30 days" description="Orange: input (prompts) · Grey: output (replies)" %}
+                    {% if openai.has_usage %}
+                        {% component "unfold/components/chart/line.html" with data=openai.token_chart height=260 %}{% endcomponent %}
+                    {% else %}
+                        <p class="text-subtle text-sm">No usage data yet.</p>
+                    {% endif %}
+                {% endcomponent %}
+            </div>
+
+            <p class="text-subtle text-xs">
+                Low-credit warnings go to: {{ openai.recipients|join:", "|default:"nobody (set CONTACT_EMAIL)" }}.
+            </p>
+        </div>
+    {% endif %}
+
+    {% include "unfold/helpers/dashboard_default.html" %}
+{% endblock %}

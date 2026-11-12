@@ -335,3 +335,77 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.title}"
+
+# ─── OpenAI credits & usage (admin dashboard) ───────────────────────────────
+# OpenAI has no API for the remaining prepaid credit balance, so the balance
+# is estimated: credits added (entered here by an admin) minus what OpenAI's
+# Costs API reports as spent since then.
+
+class OpenAICredit(models.Model):
+    """
+    Money put on the OpenAI account. Start with one entry for the balance
+    shown on platform.openai.com/settings/organization/billing, then add an
+    entry every time credits are bought.
+    """
+    amount = models.DecimalField(max_digits=10, decimal_places=2, help_text="US dollars")
+    added_on = models.DateField(
+        default=timezone.localdate,
+        help_text="Spending is counted from the day after this date.",
+    )
+    note = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-added_on", "-id"]
+        verbose_name = "OpenAI credit"
+        verbose_name_plural = "OpenAI credits"
+
+    def __str__(self):
+        return f"${self.amount} on {self.added_on}"
+
+
+class OpenAIDailyUsage(models.Model):
+    """One day of OpenAI spend and token usage (UTC days), synced from OpenAI."""
+    date = models.DateField(unique=True)
+    cost_usd = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    input_tokens = models.BigIntegerField(default=0)
+    output_tokens = models.BigIntegerField(default=0)
+    requests = models.IntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date"]
+        verbose_name = "OpenAI daily usage"
+        verbose_name_plural = "OpenAI daily usage"
+
+    def __str__(self):
+        return f"{self.date}: ${self.cost_usd:.2f}"
+
+
+class OpenAIBillingSettings(models.Model):
+    """Single row: low-credit alert settings and sync status."""
+    low_balance_threshold = models.DecimalField(
+        max_digits=10, decimal_places=2, default=5,
+        help_text="Send a warning email when the estimated balance falls to this many US dollars.",
+    )
+    alert_emails = models.TextField(
+        blank=True, default="",
+        help_text="Extra addresses for warnings, one per line. The Honeysuckle mailbox "
+                  "(CONTACT_EMAIL) and the addresses in OPENAI_ALERT_EMAILS always get them.",
+    )
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True, default="")
+    low_alert_sent_at = models.DateTimeField(null=True, blank=True)
+    out_of_credit_alert_sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "OpenAI alert settings"
+        verbose_name_plural = "OpenAI alert settings"
+
+    def __str__(self):
+        return "OpenAI alert settings"
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

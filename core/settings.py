@@ -27,6 +27,11 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+# Admin API key (sk-admin-...) for reading costs and usage on the admin
+# dashboard. Create one at platform.openai.com/settings/organization/admin-keys.
+OPENAI_ADMIN_KEY = os.getenv('OPENAI_ADMIN_KEY', '')
+# Comma-separated; low-credit warnings also go to CONTACT_EMAIL.
+OPENAI_ALERT_EMAILS = os.getenv('OPENAI_ALERT_EMAILS', 'saruf700@gmail.com')
 CORS_ALLOW_HEADERS = list(default_headers) + ['ngrok-skip-browser-warning', 'x-timezone',]
 raw_cors = os.getenv('CORS_ALLOW_ORIGINS', 'http://localhost:8000,http://localhost:3000,https://hecticly-rural-kittie.ngrok-free.dev').split(',')
 CORS_ALLOW_ORIGINS = [o if o.startswith(('http://', 'https://')) else f'http://{o}' for o in raw_cors if o.strip()]
@@ -222,6 +227,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'others.tasks.send_daily_reminders',
         'schedule': crontab(minute='*'),  # Run every minute to check for users
     },
+    'sync-openai-usage-hourly': {
+        'task': 'others.tasks.sync_openai_usage',
+        'schedule': crontab(minute=7),
+    },
 }
 
 LOGGING = {
@@ -257,6 +266,7 @@ UNFOLD = {
     "SITE_ICON": "/static/logo.png",
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": True,
+    "DASHBOARD_CALLBACK": "others.dashboard.dashboard_callback",
     "COLORS": {
         "accent": {
             "50": "244 247 243",

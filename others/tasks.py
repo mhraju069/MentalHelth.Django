@@ -117,3 +117,16 @@ def send_resource_recommendation_notification(user_id):
         )
     except User.DoesNotExist:
         logger.error(f"User with ID {user_id} not found.")
+
+
+@shared_task
+def sync_openai_usage():
+    """Hourly: pull OpenAI costs/usage for the admin dashboard and warn if credit is low."""
+    from .openai_billing import sync_and_check
+    sync_and_check()
+
+
+@shared_task
+def report_openai_out_of_credit():
+    from .openai_billing import report_out_of_credit
+    report_out_of_credit()

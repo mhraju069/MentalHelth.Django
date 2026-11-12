@@ -23,6 +23,15 @@ from .tasks import send_streak_notification
 
 logger = logging.getLogger(__name__)
 
+
+def _is_out_of_credit(res):
+    """True when an OpenAI 429 means the account has no credit (not a rate limit)."""
+    try:
+        error = res.json().get("error") or {}
+    except ValueError:
+        return False
+    return error.get("code") == "insufficient_quota" or error.get("type") == "insufficient_quota"
+
 # ─── AI Chat Constants ───────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = (
@@ -301,6 +310,19 @@ class AIChatSendMessageView(views.APIView):
             )
 
         # ── Handle HTTP-level errors ─────────────────────────────────────
+        if res.status_code == 429 and _is_out_of_credit(res):
+            # The OpenAI account has no credit left, not a passing rate limit.
+            logger.error("OpenAI credit has run out (insufficient_quota)")
+            try:
+                from .tasks import report_openai_out_of_credit
+                report_openai_out_of_credit.delay()
+            except Exception:
+                logger.exception("Could not queue the OpenAI out-of-credit alert")
+            return None, Response(
+                {"error": "The AI companion is unavailable right now. Please try again later."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         if res.status_code == 429:
             logger.warning("OpenAI rate-limited: %s", res.text[:300])
             return None, Response(
